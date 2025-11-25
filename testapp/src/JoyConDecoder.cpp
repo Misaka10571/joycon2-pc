@@ -339,23 +339,23 @@ DS4_REPORT_EX GenerateProControllerReport(const std::vector<uint8_t>& buffer)
         state = (state << 8) | buffer[i];
     }
 
-    // Debug logging disabled - GL/GR bits identified
-    static uint64_t lastState = 0;
-    if (state != lastState && state != 0) {
-        uint64_t changed = state ^ lastState;
-        printf("\n=== Button State Changed ===\n");
-        printf("Full state: 0x%012llX\n", state);
-        printf("Changed bits: 0x%012llX\n", changed);
+	// Debug logging for key pressed/released events
+    //static uint64_t lastState = 0;
+    //if (state != lastState && state != 0) {
+    //    uint64_t changed = state ^ lastState;
+    //    printf("\n=== Button State Changed ===\n");
+    //    printf("Full state: 0x%012llX\n", state);
+    //    printf("Changed bits: 0x%012llX\n", changed);
 
-        for (int bit = 0; bit < 48; ++bit) {
-            uint64_t mask = 1ULL << bit;
-            if (changed & mask) {
-                printf("  Bit %d (0x%012llX): %s\n", bit, mask,
-                       (state & mask) ? "PRESSED" : "RELEASED");
-            }
-        }
-        lastState = state;
-    }
+    //    for (int bit = 0; bit < 48; ++bit) {
+    //        uint64_t mask = 1ULL << bit;
+    //        if (changed & mask) {
+    //            printf("  Bit %d (0x%012llX): %s\n", bit, mask,
+    //                   (state & mask) ? "PRESSED" : "RELEASED");
+    //        }
+    //    }
+    //    lastState = state;
+    //}
     
 
     if (state & BUTTON_A_MASK)        report.Report.wButtons |= DS4_BUTTON_CIRCLE;

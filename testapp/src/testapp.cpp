@@ -16,6 +16,7 @@
 #include <fstream>
 #include <sstream>
 #include <map>
+#include <conio.h>  // For _kbhit()
 #include "JoyConDecoder.h"
 #include <Windows.h>
 
@@ -55,12 +56,20 @@ enum class ButtonMapping {
     DPAD_RIGHT
 };
 
-struct ProControllerConfig {
-    ButtonMapping glMapping = ButtonMapping::L3;
-    ButtonMapping grMapping = ButtonMapping::R3;
+// Single GL/GR mapping layout
+struct GLGRLayout {
+    std::string name;
+    ButtonMapping glMapping;
+    ButtonMapping grMapping;
 };
 
-const std::string CONFIG_FILE = "joycon2cpp_config.txt";
+// Pro Controller configuration with multiple layouts
+struct ProControllerConfig {
+    std::vector<GLGRLayout> layouts;
+    int activeLayoutIndex = 0;
+};
+
+const std::string CONFIG_FILE = "joycon2cpp_config.json";
 
 // Global config instance
 ProControllerConfig g_proControllerConfig;
@@ -143,33 +152,124 @@ ButtonMapping StringToButtonMapping(const std::string& str) {
     return ButtonMapping::NONE;
 }
 
-// Load config from file
+// Simple JSON serialization for our config
+std::string ConfigToJSON(const ProControllerConfig& config) {
+    std::stringstream ss;
+    ss << "{\n";
+    ss << "  \"activeLayoutIndex\": " << config.activeLayoutIndex << ",\n";
+    ss << "  \"layouts\": [\n";
+
+    for (size_t i = 0; i < config.layouts.size(); ++i) {
+        const auto& layout = config.layouts[i];
+        ss << "    {\n";
+        ss << "      \"name\": \"" << layout.name << "\",\n";
+        ss << "      \"glMapping\": \"" << ButtonMappingToString(layout.glMapping) << "\",\n";
+        ss << "      \"grMapping\": \"" << ButtonMappingToString(layout.grMapping) << "\"\n";
+        ss << "    }";
+        if (i < config.layouts.size() - 1) ss << ",";
+        ss << "\n";
+    }
+
+    ss << "  ]\n";
+    ss << "}\n";
+    return ss.str();
+}
+
+// Simple JSON parsing for our config
+bool JSONToConfig(const std::string& json, ProControllerConfig& config) {
+    config.layouts.clear();
+    config.activeLayoutIndex = 0;
+
+    // Simple parser for our specific JSON structure
+    size_t pos = 0;
+
+    // Find activeLayoutIndex
+    size_t activePos = json.find("\"activeLayoutIndex\"");
+    if (activePos != std::string::npos) {
+        size_t colonPos = json.find(':', activePos);
+        size_t commaPos = json.find_first_of(",\n", colonPos);
+        std::string value = json.substr(colonPos + 1, commaPos - colonPos - 1);
+        // Trim whitespace
+        value.erase(0, value.find_first_not_of(" \t\n\r"));
+        value.erase(value.find_last_not_of(" \t\n\r") + 1);
+        config.activeLayoutIndex = std::stoi(value);
+    }
+
+    // Find layouts array
+    size_t layoutsStart = json.find("\"layouts\"");
+    if (layoutsStart == std::string::npos) return false;
+
+    size_t arrayStart = json.find('[', layoutsStart);
+    if (arrayStart == std::string::npos) return false;
+
+    // Parse each layout object
+    pos = arrayStart + 1;
+    while (pos < json.length()) {
+        size_t objectStart = json.find('{', pos);
+        if (objectStart == std::string::npos) break;
+
+        size_t objectEnd = json.find('}', objectStart);
+        if (objectEnd == std::string::npos) break;
+
+        std::string objectStr = json.substr(objectStart, objectEnd - objectStart + 1);
+
+        GLGRLayout layout;
+
+        // Parse name
+        size_t namePos = objectStr.find("\"name\"");
+        if (namePos != std::string::npos) {
+            size_t nameStart = objectStr.find('\"', namePos + 6);
+            size_t nameEnd = objectStr.find('\"', nameStart + 1);
+            layout.name = objectStr.substr(nameStart + 1, nameEnd - nameStart - 1);
+        }
+
+        // Parse glMapping
+        size_t glPos = objectStr.find("\"glMapping\"");
+        if (glPos != std::string::npos) {
+            size_t glStart = objectStr.find('\"', glPos + 11);
+            size_t glEnd = objectStr.find('\"', glStart + 1);
+            std::string glStr = objectStr.substr(glStart + 1, glEnd - glStart - 1);
+            layout.glMapping = StringToButtonMapping(glStr);
+        }
+
+        // Parse grMapping
+        size_t grPos = objectStr.find("\"grMapping\"");
+        if (grPos != std::string::npos) {
+            size_t grStart = objectStr.find('\"', grPos + 11);
+            size_t grEnd = objectStr.find('\"', grStart + 1);
+            std::string grStr = objectStr.substr(grStart + 1, grEnd - grStart - 1);
+            layout.grMapping = StringToButtonMapping(grStr);
+        }
+
+        config.layouts.push_back(layout);
+
+        pos = objectEnd + 1;
+        // Check if there's another object
+        size_t nextComma = json.find(',', pos);
+        size_t arrayEnd = json.find(']', pos);
+        if (arrayEnd != std::string::npos && (nextComma == std::string::npos || arrayEnd < nextComma)) {
+            break;
+        }
+    }
+
+    return !config.layouts.empty();
+}
+
+// Load config from JSON file
 bool LoadProControllerConfig(ProControllerConfig& config) {
     std::ifstream file(CONFIG_FILE);
     if (!file.is_open()) {
         return false;
     }
 
-    std::string line;
-    while (std::getline(file, line)) {
-        size_t pos = line.find('=');
-        if (pos == std::string::npos) continue;
-
-        std::string key = line.substr(0, pos);
-        std::string value = line.substr(pos + 1);
-
-        if (key == "GL") {
-            config.glMapping = StringToButtonMapping(value);
-        } else if (key == "GR") {
-            config.grMapping = StringToButtonMapping(value);
-        }
-    }
-
+    std::stringstream buffer;
+    buffer << file.rdbuf();
     file.close();
-    return true;
+
+    return JSONToConfig(buffer.str(), config);
 }
 
-// Save config to file
+// Save config to JSON file
 void SaveProControllerConfig(const ProControllerConfig& config) {
     std::ofstream file(CONFIG_FILE);
     if (!file.is_open()) {
@@ -177,9 +277,7 @@ void SaveProControllerConfig(const ProControllerConfig& config) {
         return;
     }
 
-    file << "GL=" << ButtonMappingToString(config.glMapping) << "\n";
-    file << "GR=" << ButtonMappingToString(config.grMapping) << "\n";
-
+    file << ConfigToJSON(config);
     file.close();
     std::cout << "Configuration saved to " << CONFIG_FILE << "\n";
 }
@@ -235,19 +333,134 @@ ButtonMapping PromptForButtonMapping(const std::string& buttonName) {
 }
 
 // Configure GL/GR mappings interactively
-void ConfigureGLGRMappings() {
-    std::cout << "\n=== Configure GL/GR Back Buttons ===\n";
-    std::cout << "The Pro Controller 2 has two additional back buttons: GL and GR.\n";
-    std::cout << "You can map them to any controller button.\n";
-
-    g_proControllerConfig.glMapping = PromptForButtonMapping("GL");
-    g_proControllerConfig.grMapping = PromptForButtonMapping("GR");
-
+// Create default config with one empty layout
+void CreateDefaultConfig() {
+    g_proControllerConfig.layouts.clear();
+    GLGRLayout defaultLayout;
+    defaultLayout.name = "Layout 1";
+    defaultLayout.glMapping = ButtonMapping::NONE;
+    defaultLayout.grMapping = ButtonMapping::NONE;
+    g_proControllerConfig.layouts.push_back(defaultLayout);
+    g_proControllerConfig.activeLayoutIndex = 0;
     SaveProControllerConfig(g_proControllerConfig);
+}
 
-    std::cout << "\nConfiguration complete!\n";
-    std::cout << "  GL -> " << ButtonMappingToString(g_proControllerConfig.glMapping) << "\n";
-    std::cout << "  GR -> " << ButtonMappingToString(g_proControllerConfig.grMapping) << "\n\n";
+// Configure a single layout
+void ConfigureLayout(GLGRLayout& layout) {
+    std::cout << "\n=== Configure GL/GR Mapping ===\n";
+    std::cout << "Layout Name: " << layout.name << "\n\n";
+
+    layout.glMapping = PromptForButtonMapping("GL");
+    layout.grMapping = PromptForButtonMapping("GR");
+
+    std::cout << "\nLayout configured!\n";
+    std::cout << "  GL -> " << ButtonMappingToString(layout.glMapping) << "\n";
+    std::cout << "  GR -> " << ButtonMappingToString(layout.grMapping) << "\n";
+}
+
+// Layout management window
+void ShowLayoutManagementWindow() {
+    while (true) {
+        std::cout << "\n==================================================\n";
+        std::cout << "          GL/GR LAYOUT MANAGEMENT\n";
+        std::cout << "==================================================\n";
+        std::cout << "Current active layout: " << g_proControllerConfig.layouts[g_proControllerConfig.activeLayoutIndex].name << "\n\n";
+        std::cout << "Available Layouts:\n";
+
+        for (size_t i = 0; i < g_proControllerConfig.layouts.size(); ++i) {
+            const auto& layout = g_proControllerConfig.layouts[i];
+            std::cout << "  " << (i + 1) << ". " << layout.name;
+            if (i == static_cast<size_t>(g_proControllerConfig.activeLayoutIndex)) {
+                std::cout << " [ACTIVE]";
+            }
+            std::cout << "\n";
+            std::cout << "     GL: " << ButtonMappingToString(layout.glMapping)
+                      << " | GR: " << ButtonMappingToString(layout.grMapping) << "\n";
+        }
+
+        std::cout << "  " << (g_proControllerConfig.layouts.size() + 1) << ". [NEW]\n";
+        std::cout << "  0. Exit Management Window\n\n";
+        std::cout << "Enter number to edit layout: ";
+
+        std::string input;
+        std::getline(std::cin, input);
+
+        if (input.empty()) continue;
+
+        int choice = std::stoi(input);
+
+        if (choice == 0) {
+            SaveProControllerConfig(g_proControllerConfig);
+            std::cout << "Exiting layout management...\n";
+            break;
+        }
+        else if (choice == static_cast<int>(g_proControllerConfig.layouts.size() + 1)) {
+            // Create new layout
+            GLGRLayout newLayout;
+            std::cout << "\nEnter name for new layout: ";
+            std::getline(std::cin, newLayout.name);
+            if (newLayout.name.empty()) {
+                newLayout.name = "Layout " + std::to_string(g_proControllerConfig.layouts.size() + 1);
+            }
+            newLayout.glMapping = ButtonMapping::NONE;
+            newLayout.grMapping = ButtonMapping::NONE;
+
+            ConfigureLayout(newLayout);
+            g_proControllerConfig.layouts.push_back(newLayout);
+            SaveProControllerConfig(g_proControllerConfig);
+            std::cout << "\nNew layout added!\n";
+        }
+        else if (choice > 0 && choice <= static_cast<int>(g_proControllerConfig.layouts.size())) {
+            // Edit existing layout
+            size_t index = choice - 1;
+            std::cout << "\nEditing: " << g_proControllerConfig.layouts[index].name << "\n";
+            std::cout << "1. Rename layout\n";
+            std::cout << "2. Configure mappings\n";
+            std::cout << "3. Delete layout\n";
+            std::cout << "4. Set as active layout\n";
+            std::cout << "0. Cancel\n";
+            std::cout << "Choice: ";
+
+            std::string editChoice;
+            std::getline(std::cin, editChoice);
+
+            if (editChoice == "1") {
+                std::cout << "Enter new name: ";
+                std::string newName;
+                std::getline(std::cin, newName);
+                if (!newName.empty()) {
+                    g_proControllerConfig.layouts[index].name = newName;
+                    SaveProControllerConfig(g_proControllerConfig);
+                }
+            }
+            else if (editChoice == "2") {
+                ConfigureLayout(g_proControllerConfig.layouts[index]);
+                SaveProControllerConfig(g_proControllerConfig);
+            }
+            else if (editChoice == "3") {
+                if (g_proControllerConfig.layouts.size() > 1) {
+                    std::cout << "Are you sure you want to delete this layout? (y/n): ";
+                    std::string confirm;
+                    std::getline(std::cin, confirm);
+                    if (confirm == "y" || confirm == "Y") {
+                        g_proControllerConfig.layouts.erase(g_proControllerConfig.layouts.begin() + index);
+                        if (g_proControllerConfig.activeLayoutIndex >= static_cast<int>(g_proControllerConfig.layouts.size())) {
+                            g_proControllerConfig.activeLayoutIndex = g_proControllerConfig.layouts.size() - 1;
+                        }
+                        SaveProControllerConfig(g_proControllerConfig);
+                        std::cout << "Layout deleted!\n";
+                    }
+                } else {
+                    std::cout << "Cannot delete the last layout!\n";
+                }
+            }
+            else if (editChoice == "4") {
+                g_proControllerConfig.activeLayoutIndex = index;
+                SaveProControllerConfig(g_proControllerConfig);
+                std::cout << "Active layout changed to: " << g_proControllerConfig.layouts[index].name << "\n";
+            }
+        }
+    }
 }
 
 // Apply ButtonMapping to DS4 report
@@ -320,10 +533,14 @@ void SendKeyboardInput(WORD virtualKey, bool keyDown) {
     SendInput(1, &input, sizeof(INPUT));
 }
 
-// Track screenshot button state to avoid repeated key presses
+// Track button states to avoid repeated key presses
 static bool g_screenshotButtonPressed = false;
+static bool g_cButtonPressed = false;
 
-// Handle special Pro Controller buttons (Screenshot and C button)
+// Flag for ZL+ZR+GL+GR combo to enter management window
+static std::atomic<bool> g_openManagementWindow(false);
+
+// Handle special Pro Controller buttons (Screenshot, C button, and combo detection)
 void HandleSpecialProButtons(const std::vector<uint8_t>& buffer) {
     if (buffer.size() < 9) return;
 
@@ -334,7 +551,19 @@ void HandleSpecialProButtons(const std::vector<uint8_t>& buffer) {
     }
 
     constexpr uint64_t BUTTON_SCREENSHOT_MASK = 0x000020000000;  // Bit 29
-    constexpr uint64_t BUTTON_C_MASK = 0x000040000000;           // Bit 30 (reserved for future use)
+    constexpr uint64_t BUTTON_C_MASK = 0x000040000000;           // Bit 30
+    constexpr uint64_t BUTTON_GL_MASK = 0x000000000200;          // Bit 9
+    constexpr uint64_t BUTTON_GR_MASK = 0x000000000100;          // Bit 8
+    constexpr uint64_t TRIGGER_ZL_MASK = 0x000000800000;         // ZL trigger
+    constexpr uint64_t TRIGGER_ZR_MASK = 0x008000000000;         // ZR trigger
+
+    // Check for ZL+ZR+GL+GR combo to open management window
+    bool comboPressed = (state & TRIGGER_ZL_MASK) && (state & TRIGGER_ZR_MASK) &&
+                        (state & BUTTON_GL_MASK) && (state & BUTTON_GR_MASK);
+
+    if (comboPressed) {
+        g_openManagementWindow.store(true);
+    }
 
     // Handle Screenshot button -> F12 key
     bool screenshotPressed = (state & BUTTON_SCREENSHOT_MASK) != 0;
@@ -349,12 +578,46 @@ void HandleSpecialProButtons(const std::vector<uint8_t>& buffer) {
         g_screenshotButtonPressed = false;
     }
 
-    // TODO: Handle C button (Bit 30) in the future
+    // Handle C button -> Cycle through layouts
+    bool cPressed = (state & BUTTON_C_MASK) != 0;
+    if (cPressed && !g_cButtonPressed) {
+        // Button just pressed - cycle to next layout
+        if (!g_proControllerConfig.layouts.empty()) {
+            int oldIndex = g_proControllerConfig.activeLayoutIndex;
+            g_proControllerConfig.activeLayoutIndex = (g_proControllerConfig.activeLayoutIndex + 1) % g_proControllerConfig.layouts.size();
+            SaveProControllerConfig(g_proControllerConfig);
+
+            // Log layout change
+            std::cout << "\n[Layout Changed] "
+                      << g_proControllerConfig.layouts[oldIndex].name
+                      << " -> "
+                      << g_proControllerConfig.layouts[g_proControllerConfig.activeLayoutIndex].name
+                      << " (GL: " << ButtonMappingToString(g_proControllerConfig.layouts[g_proControllerConfig.activeLayoutIndex].glMapping)
+                      << ", GR: " << ButtonMappingToString(g_proControllerConfig.layouts[g_proControllerConfig.activeLayoutIndex].grMapping)
+                      << ")\n";
+        }
+        g_cButtonPressed = true;
+    }
+    else if (!cPressed && g_cButtonPressed) {
+        g_cButtonPressed = false;
+    }
 }
 
-// Apply GL/GR mappings to Pro Controller report
+// Apply GL/GR mappings to Pro Controller report using active layout
 void ApplyGLGRMappings(DS4_REPORT_EX& report, const std::vector<uint8_t>& buffer) {
     if (buffer.size() < 9) return;
+
+    // Check if we have any layouts
+    if (g_proControllerConfig.layouts.empty()) return;
+
+    // Get the active layout
+    int layoutIndex = g_proControllerConfig.activeLayoutIndex;
+    if (layoutIndex < 0 || layoutIndex >= static_cast<int>(g_proControllerConfig.layouts.size())) {
+        layoutIndex = 0;
+        g_proControllerConfig.activeLayoutIndex = 0;
+    }
+
+    const GLGRLayout& activeLayout = g_proControllerConfig.layouts[layoutIndex];
 
     // Build button state from bytes 3-8 (same as in JoyConDecoder)
     uint64_t state = 0;
@@ -367,10 +630,10 @@ void ApplyGLGRMappings(DS4_REPORT_EX& report, const std::vector<uint8_t>& buffer
 
     // Apply mappings if buttons are pressed
     if (state & BUTTON_GL_MASK) {
-        ApplyButtonMapping(report, g_proControllerConfig.glMapping);
+        ApplyButtonMapping(report, activeLayout.glMapping);
     }
     if (state & BUTTON_GR_MASK) {
-        ApplyButtonMapping(report, g_proControllerConfig.grMapping);
+        ApplyButtonMapping(report, activeLayout.grMapping);
     }
 }
 
@@ -785,24 +1048,20 @@ int main()
             std::getline(std::wcin, dummy);
         }
         else if (config.controllerType == ProController) {
-            // Load or configure GL/GR mappings
+            // Load or create GL/GR layouts configuration
             if (!LoadProControllerConfig(g_proControllerConfig)) {
-                std::cout << "\nNo existing configuration found for Pro Controller GL/GR buttons.\n";
-                std::cout << "Would you like to configure them now? (y/n): ";
-                std::string response;
-                std::getline(std::cin, response);
-
-                if (response == "y" || response == "Y") {
-                    ConfigureGLGRMappings();
-                } else {
-                    std::cout << "Using default mappings: GL->L3, GR->R3\n";
-                    SaveProControllerConfig(g_proControllerConfig);
-                }
+                std::cout << "\nNo existing configuration found. Creating default layout...\n";
+                CreateDefaultConfig();
+                std::cout << "Default layout created: Layout 1 (GL: NONE, GR: NONE)\n";
+                std::cout << "Press ZL+ZR+GL+GR during gameplay to open layout management.\n\n";
             } else {
-                std::cout << "\nLoaded GL/GR button configuration:\n";
-                std::cout << "  GL -> " << ButtonMappingToString(g_proControllerConfig.glMapping) << "\n";
-                std::cout << "  GR -> " << ButtonMappingToString(g_proControllerConfig.grMapping) << "\n";
-                std::cout << "To change this, delete " << CONFIG_FILE << " and restart.\n\n";
+                std::cout << "\nLoaded GL/GR layout configuration:\n";
+                std::cout << "Active Layout: " << g_proControllerConfig.layouts[g_proControllerConfig.activeLayoutIndex].name << "\n";
+                std::cout << "  GL -> " << ButtonMappingToString(g_proControllerConfig.layouts[g_proControllerConfig.activeLayoutIndex].glMapping) << "\n";
+                std::cout << "  GR -> " << ButtonMappingToString(g_proControllerConfig.layouts[g_proControllerConfig.activeLayoutIndex].grMapping) << "\n";
+                std::cout << "Total layouts: " << g_proControllerConfig.layouts.size() << "\n";
+                std::cout << "Press ZL+ZR+GL+GR during gameplay to open layout management.\n";
+                std::cout << "Press C button to cycle through layouts.\n\n";
             }
 
             std::wcout << L"Please sync your Pro Controller now.\n";
@@ -920,9 +1179,34 @@ int main()
 }
     }
 
-    std::wcout << L"All players connected. Press Enter to exit...\n";
-    std::wstring dummy;
-    std::getline(std::wcin, dummy);
+    std::wcout << L"All players connected.\n";
+    std::wcout << L"- Press Enter to exit\n";
+    std::wcout << L"- Press ZL+ZR+GL+GR on Pro Controller to open layout management\n";
+    std::wcout << L"- Press C button on Pro Controller to cycle layouts\n\n";
+
+    // Main loop: monitor for management window trigger and exit command
+    while (true) {
+        // Check if management window should be opened
+        if (g_openManagementWindow.load()) {
+            g_openManagementWindow.store(false);
+            std::cout << "\n[ZL+ZR+GL+GR combo detected! Opening layout management...]\n";
+            ShowLayoutManagementWindow();
+            std::cout << "\nResuming gameplay...\n";
+            std::cout << "Active layout: " << g_proControllerConfig.layouts[g_proControllerConfig.activeLayoutIndex].name << "\n";
+            std::cout << "Press Enter to exit, or ZL+ZR+GL+GR to manage layouts again.\n\n";
+        }
+
+        // Check for user input (non-blocking check)
+        // Use a short sleep and check if Enter was pressed
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+        // Check if input is available (simple approach for Windows)
+        if (_kbhit()) {
+            std::wstring dummy;
+            std::getline(std::wcin, dummy);
+            break;
+        }
+    }
 
     // Clean up dual player threads & free controllers
     for (auto& dp : dualPlayers)
