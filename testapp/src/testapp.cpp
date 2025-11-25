@@ -308,6 +308,50 @@ void ApplyButtonMapping(DS4_REPORT_EX& report, ButtonMapping mapping) {
     }
 }
 
+// Send keyboard key press/release using Windows SendInput API
+void SendKeyboardInput(WORD virtualKey, bool keyDown) {
+    INPUT input = {};
+    input.type = INPUT_KEYBOARD;
+    input.ki.wVk = virtualKey;
+    input.ki.dwFlags = keyDown ? 0 : KEYEVENTF_KEYUP;
+    input.ki.time = 0;
+    input.ki.dwExtraInfo = 0;
+
+    SendInput(1, &input, sizeof(INPUT));
+}
+
+// Track screenshot button state to avoid repeated key presses
+static bool g_screenshotButtonPressed = false;
+
+// Handle special Pro Controller buttons (Screenshot and C button)
+void HandleSpecialProButtons(const std::vector<uint8_t>& buffer) {
+    if (buffer.size() < 9) return;
+
+    // Build button state from bytes 3-8
+    uint64_t state = 0;
+    for (int i = 3; i <= 8; ++i) {
+        state = (state << 8) | buffer[i];
+    }
+
+    constexpr uint64_t BUTTON_SCREENSHOT_MASK = 0x000020000000;  // Bit 29
+    constexpr uint64_t BUTTON_C_MASK = 0x000040000000;           // Bit 30 (reserved for future use)
+
+    // Handle Screenshot button -> F12 key
+    bool screenshotPressed = (state & BUTTON_SCREENSHOT_MASK) != 0;
+    if (screenshotPressed && !g_screenshotButtonPressed) {
+        // Button just pressed - send F12 key down
+        SendKeyboardInput(VK_F12, true);
+        g_screenshotButtonPressed = true;
+    }
+    else if (!screenshotPressed && g_screenshotButtonPressed) {
+        // Button just released - send F12 key up
+        SendKeyboardInput(VK_F12, false);
+        g_screenshotButtonPressed = false;
+    }
+
+    // TODO: Handle C button (Bit 30) in the future
+}
+
 // Apply GL/GR mappings to Pro Controller report
 void ApplyGLGRMappings(DS4_REPORT_EX& report, const std::vector<uint8_t>& buffer) {
     if (buffer.size() < 9) return;
@@ -795,6 +839,9 @@ int main()
 
                     // Apply GL/GR button mappings
                     ApplyGLGRMappings(report, buffer);
+
+                    // Handle special buttons (Screenshot -> F12, C button)
+                    HandleSpecialProButtons(buffer);
 
                     auto ret = vigem_target_ds4_update_ex(vigem_client, ds4_controller, report);
                     if (!VIGEM_SUCCESS(ret)) {

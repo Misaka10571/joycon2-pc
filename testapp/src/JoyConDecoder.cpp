@@ -340,7 +340,6 @@ DS4_REPORT_EX GenerateProControllerReport(const std::vector<uint8_t>& buffer)
     }
 
     // Debug logging disabled - GL/GR bits identified
-    /*
     static uint64_t lastState = 0;
     if (state != lastState && state != 0) {
         uint64_t changed = state ^ lastState;
@@ -357,7 +356,7 @@ DS4_REPORT_EX GenerateProControllerReport(const std::vector<uint8_t>& buffer)
         }
         lastState = state;
     }
-    */
+    
 
     if (state & BUTTON_A_MASK)        report.Report.wButtons |= DS4_BUTTON_CIRCLE;
     if (state & BUTTON_B_MASK)        report.Report.wButtons |= DS4_BUTTON_CROSS;
