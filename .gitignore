@@ -1,0 +1,4 @@
+build/
+.claude/
+.vscode/
+docs/

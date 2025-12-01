@@ -5,6 +5,7 @@
 #include <ViGEm/Common.h>
 
 #include <cstdint>
+#include <cstdio>
 #include <vector>
 #include <algorithm> // for clamp
 
@@ -338,6 +339,25 @@ DS4_REPORT_EX GenerateProControllerReport(const std::vector<uint8_t>& buffer)
         state = (state << 8) | buffer[i];
     }
 
+	// Debug logging for key pressed/released events
+    //static uint64_t lastState = 0;
+    //if (state != lastState && state != 0) {
+    //    uint64_t changed = state ^ lastState;
+    //    printf("\n=== Button State Changed ===\n");
+    //    printf("Full state: 0x%012llX\n", state);
+    //    printf("Changed bits: 0x%012llX\n", changed);
+
+    //    for (int bit = 0; bit < 48; ++bit) {
+    //        uint64_t mask = 1ULL << bit;
+    //        if (changed & mask) {
+    //            printf("  Bit %d (0x%012llX): %s\n", bit, mask,
+    //                   (state & mask) ? "PRESSED" : "RELEASED");
+    //        }
+    //    }
+    //    lastState = state;
+    //}
+    
+
     if (state & BUTTON_A_MASK)        report.Report.wButtons |= DS4_BUTTON_CIRCLE;
     if (state & BUTTON_B_MASK)        report.Report.wButtons |= DS4_BUTTON_CROSS;
     if (state & BUTTON_X_MASK)        report.Report.wButtons |= DS4_BUTTON_TRIANGLE;
@@ -346,7 +366,7 @@ DS4_REPORT_EX GenerateProControllerReport(const std::vector<uint8_t>& buffer)
     if (state & BUTTON_R_SHOULDER)    report.Report.wButtons |= DS4_BUTTON_SHOULDER_RIGHT;
     if (state & BUTTON_L_THUMB)       report.Report.wButtons |= DS4_BUTTON_THUMB_LEFT;
     if (state & BUTTON_R_THUMB)       report.Report.wButtons |= DS4_BUTTON_THUMB_RIGHT;
-    if (state & BUTTON_BACK)          report.Report.wButtons |= DS4_BUTTON_SHARE;
+    if (state & BUTTON_BACK)          report.Report.bSpecial |= DS4_SPECIAL_BUTTON_TOUCHPAD;
     if (state & BUTTON_START)         report.Report.wButtons |= DS4_BUTTON_OPTIONS;
     if (state & BUTTON_GUIDE)         report.Report.bSpecial |= DS4_SPECIAL_BUTTON_PS;
 
