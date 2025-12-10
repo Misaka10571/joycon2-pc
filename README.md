@@ -8,23 +8,7 @@ A C++ executable that makes Switch 2 controllers into working PC controllers.
 
 This project is **Windows-only**, primarily because the `ViGEmBus Driver` (used for virtual controller output) is exclusive to Windows.  
 You're free to make your own macOS/Linux fork if you want.
-
-I don't actually own a Pro Controller 2 or an NSO GC Controller, so their decoders might suck. Sorry! However, if you DO own these controllers, you can help out by:
-- Testing the program's decoders and see if both controllers work fine
-- Edit the code to make them better based on your own testing (if you do this, make a fork out of it and submit a pull request! I'd be glad to accept it, any kind of cool stuff that gets added i'll be a big fan of.)
-
-For some people, theres been reports of delay when using the program. Me personally, while my JoyCon 2 sticks report 50-60ms in a polling rate tester, their feel and delay is.. fine. If you think you have a solution to this, feel free to make a pull request of it. All I wanna say is it's something related to either your PC or your controller.
-
 ---
-
-## PROGRESS
-- Multiplayer (Complete, Working)
-- Single Joycons (Complete, needs slight Sideways mapping changes)
-- Dual Joycons (Complete, Working)
-- Pro Controller (Complete, Working)
-- NSO GC Controller (In-Progress, prototype has been added)
-- Gyro Support (Yes)
-- Mouse Support (Yeah, but the speed needs to be increased)
 
 ## DEPENDENCIES
 
@@ -40,7 +24,7 @@ For some people, theres been reports of delay when using the program. Me persona
 - If using dual joycons itll ask you to pair one joycon then the other
 - When its all done, you'll have SDL controllers ready for every player to use.
 
-> 💡 Note: Bit layouts differ slightly between left and right Joy-Cons, so correct side pairing is important.
+>  Note: Bit layouts differ slightly between left and right Joy-Cons, so correct side pairing is important.
 > 
 ---
 
@@ -48,19 +32,19 @@ For some people, theres been reports of delay when using the program. Me persona
 
 If you want to build the project yourself, follow these instructions (Windows + Visual Studio):
 
-📦 Requirements  
+ Requirements  
 
 Make sure the following are installed via Visual Studio Installer:
 
-✅ Visual Studio 2022 or newer (you'll probably be developing in this anyway)
+ Visual Studio 2022 or newer (you'll probably be developing in this anyway)
 
-✅ Workload: Desktop development with C++
+ Workload: Desktop development with C++
 
-✅ Component: Windows 10 or 11 SDK
+ Component: Windows 10 or 11 SDK
 
-✅ Component: MSVC v14.x
+ Component: MSVC v14.x
 
-✅ (Optional but useful) C++/WinRT  
+ (Optional but useful) C++/WinRT  
 
 
 
@@ -86,14 +70,14 @@ Make sure the following are installed via Visual Studio Installer:
 
 This document outlines some findings related to Joy-Con 2 BLE input behavior. If you're developing or reverse-engineering Joy-Con 2, Pro Controller 2, or other supported Nintendo controllers over BLE, this may be useful.
 
-## ⚠️ Behavior Quirks
+##  Behavior Quirks
 
 A notable quirk of these controllers is that if you attempt to connect or pair them repeatedly in a short time span, they may stop responding or fail to connect entirely for several minutes. This appears to be a controller-level cooldown behavior rather than an OS/BLE stack issue.
 
 **If your controller stops connecting:**  
 Wait a few minutes before trying again. It should recover on its own.
 
-## 🔔 BLE Notification (with IMU enabled, Left Joy-Con)
+##  BLE Notification (with IMU enabled, Left Joy-Con)
 
 Here’s an example notification received from a Joy-Con 2 via BLE, with the IMU command sent. (Pro Controller 2 and GC Controller notifications follow similar layouts but may shift certain fields.)
 
