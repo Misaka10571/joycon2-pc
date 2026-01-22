@@ -13,6 +13,7 @@ You're free to make your own macOS/Linux fork if you want.
 ## DEPENDENCIES
 
 - [ViGEmBus drivers](https://github.com/ViGEm/ViGEmBus/releases/latest)
+- [Microsoft Visual C++ Redistributable 2015–2022 (x64)](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist)
 
 ---
 
