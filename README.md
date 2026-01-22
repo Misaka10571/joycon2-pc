@@ -63,6 +63,11 @@ Make sure the following are installed via Visual Studio Installer:
     build\Release\testapp.exe
 
 # Joy-Con 2 BLE Notification Research
+(this section is for documenting the Joy-Con 2's behavior and function. if you're just looking to use the program, this section isnt important.)
+
+
+
+
 
 This document outlines some findings related to Joy-Con 2 BLE input behavior. If you're developing or reverse-engineering Joy-Con 2, Pro Controller 2, or other supported Nintendo controllers over BLE, this may be useful.
 
