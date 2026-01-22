@@ -37,17 +37,12 @@ If you want to build the project yourself, follow these instructions (Windows + 
 
 Make sure the following are installed via Visual Studio Installer:
 
- Visual Studio 2022 or newer (you'll probably be developing in this anyway)
-
+ Visual Studio 2022 or newer
  Workload: Desktop development with C++
-
  Component: Windows 10 or 11 SDK
-
  Component: MSVC v14.x
 
  (Optional but useful) C++/WinRT  
-
-
 
 1. Open a command prompt or PowerShell in the project root folder.
 
