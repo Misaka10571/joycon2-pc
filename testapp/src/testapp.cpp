@@ -445,7 +445,7 @@ void ShowLayoutManagementWindow() {
                     if (confirm == "y" || confirm == "Y") {
                         g_proControllerConfig.layouts.erase(g_proControllerConfig.layouts.begin() + index);
                         if (g_proControllerConfig.activeLayoutIndex >= static_cast<int>(g_proControllerConfig.layouts.size())) {
-                            g_proControllerConfig.activeLayoutIndex = g_proControllerConfig.layouts.size() - 1;
+                            g_proControllerConfig.activeLayoutIndex = static_cast<int>(g_proControllerConfig.layouts.size()) - 1;
                         }
                         SaveProControllerConfig(g_proControllerConfig);
                         std::cout << "Layout deleted!\n";
@@ -455,7 +455,7 @@ void ShowLayoutManagementWindow() {
                 }
             }
             else if (editChoice == "4") {
-                g_proControllerConfig.activeLayoutIndex = index;
+                g_proControllerConfig.activeLayoutIndex = static_cast<int>(index);
                 SaveProControllerConfig(g_proControllerConfig);
                 std::cout << "Active layout changed to: " << g_proControllerConfig.layouts[index].name << "\n";
             }
@@ -671,6 +671,47 @@ void SendCustomCommands(GattCharacteristic const& characteristic)
         std::this_thread::sleep_for(std::chrono::milliseconds(500));
     }
 }
+// Helper to send generic commands matching main.py structure
+void SendGenericCommand(GattCharacteristic const& characteristic, uint8_t cmdId, uint8_t subCmdId, const std::vector<uint8_t>& data) {
+    if (!characteristic) return;
+
+    DataWriter writer;
+    
+    // Structure: CmdID, 0x91, 0x01, SubCmdID, 0x00, Len, 0x00, 0x00, Data...
+    writer.WriteByte(cmdId);
+    writer.WriteByte(0x91);
+    writer.WriteByte(0x01);
+    writer.WriteByte(subCmdId);
+    writer.WriteByte(0x00);
+    writer.WriteByte(static_cast<uint8_t>(data.size()));
+    writer.WriteByte(0x00);
+    writer.WriteByte(0x00);
+    
+    // Write Data
+    for (uint8_t b : data) {
+        writer.WriteByte(b);
+    }
+
+    IBuffer buffer = writer.DetachBuffer();
+    characteristic.WriteValueAsync(buffer, GattWriteOption::WriteWithoutResponse).get();
+    
+    // Small delay to prevent flooding
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+}
+
+void EmitSound(GattCharacteristic const& characteristic) {
+    // CMD 0x0A, SUB 0x02, Data: 0x04 (Preset) + Padding (up to 8 bytes total)
+    std::vector<uint8_t> data(8, 0x00);
+    data[0] = 0x04; // Preset ID
+    SendGenericCommand(characteristic, 0x0A, 0x02, data);
+}
+
+void SetPlayerLEDs(GattCharacteristic const& characteristic, uint8_t pattern) {
+    // CMD 0x09, SUB 0x07, Data: pattern + Padding (up to 8 bytes total)
+    std::vector<uint8_t> data(8, 0x00);
+    data[0] = pattern;
+    SendGenericCommand(characteristic, 0x09, 0x07, data);
+}
 
 struct ConnectedJoyCon {
     BluetoothLEDevice device = nullptr;
@@ -781,7 +822,7 @@ struct SingleJoyConPlayer {
     JoyConOrientation orientation;
     
     // Mouse State
-    int mouseMode = 0; // 0=Off, 1=Fast, 2=Normal, 3=Slow
+    int mouseMode = 2; // 0=Off, 1=Fast, 2=Normal, 3=Slow
     bool wasChatPressed = false;
     int16_t lastOpticalX = 0;
     int16_t lastOpticalY = 0;
@@ -947,11 +988,18 @@ int main()
                         if (chatPressed && !player.wasChatPressed) {
                             player.mouseMode = (player.mouseMode + 1) % 4;
                             const char* modeName = "OFF";
-                            if (player.mouseMode == 1) modeName = "FAST";
-                            else if (player.mouseMode == 2) modeName = "NORMAL";
-                            else if (player.mouseMode == 3) modeName = "SLOW";
+                            if (player.mouseMode == 1) {
+                                modeName = "FAST";
+                            }
+                            else if (player.mouseMode == 2) {
+                                modeName = "NORMAL";
+                            }
+                            else if (player.mouseMode == 3) {
+                                modeName = "SLOW";
+                            }
                             
                             std::cout << "Optical Mouse Mode: " << modeName << std::endl;
+                            EmitSound(player.joycon.writeChar);
                         }
                         player.wasChatPressed = chatPressed;
                         
@@ -1127,8 +1175,12 @@ int main()
             auto status = player.joycon.inputChar.WriteClientCharacteristicConfigurationDescriptorAsync(
                 GattClientCharacteristicConfigurationDescriptorValue::Notify).get();
 
-            if (player.joycon.writeChar)
+            if (player.joycon.writeChar) {
                 SendCustomCommands(player.joycon.writeChar);
+                std::this_thread::sleep_for(std::chrono::milliseconds(200));
+                SetPlayerLEDs(player.joycon.writeChar, 0x01); // Player 1 (Solid LED 1)
+                EmitSound(player.joycon.writeChar);
+            }
 
             if (status == GattCommunicationStatus::Success)
                 std::wcout << L"Notifications enabled.\n";
@@ -1142,8 +1194,12 @@ int main()
         else if (config.controllerType == DualJoyCon) {
             std::wcout << L"Please sync your RIGHT Joy-Con now.\n";
             ConnectedJoyCon rightJoyCon = WaitForJoyCon(L"Waiting for RIGHT Joy-Con...");
-            if (rightJoyCon.writeChar)
+            if (rightJoyCon.writeChar) {
                 SendCustomCommands(rightJoyCon.writeChar);
+                std::this_thread::sleep_for(std::chrono::milliseconds(200));
+                SetPlayerLEDs(rightJoyCon.writeChar, 0x01);
+                EmitSound(rightJoyCon.writeChar);
+            }
 
             // Request minimum BLE connection interval for right Joy-Con
             try {
@@ -1157,8 +1213,12 @@ int main()
 
             std::wcout << L"Please sync your LEFT Joy-Con now.\n";
             ConnectedJoyCon leftJoyCon = WaitForJoyCon(L"Waiting for LEFT Joy-Con...");
-            if (leftJoyCon.writeChar)
+            if (leftJoyCon.writeChar) {
                 SendCustomCommands(leftJoyCon.writeChar);
+                std::this_thread::sleep_for(std::chrono::milliseconds(200));
+                SetPlayerLEDs(leftJoyCon.writeChar, 0x08); // Player 2 (Solid LED 4? or specific pattern for left?)
+                EmitSound(leftJoyCon.writeChar);
+            }
 
             // Request minimum BLE connection interval for left Joy-Con
             try {
@@ -1315,8 +1375,12 @@ int main()
             auto status = proController.inputChar.WriteClientCharacteristicConfigurationDescriptorAsync(
                 GattClientCharacteristicConfigurationDescriptorValue::Notify).get();
 
-            if (proController.writeChar)
+            if (proController.writeChar) {
                 SendCustomCommands(proController.writeChar);
+                std::this_thread::sleep_for(std::chrono::milliseconds(200));
+                SetPlayerLEDs(proController.writeChar, 0x01);
+                EmitSound(proController.writeChar);
+            }
 
             if (status == GattCommunicationStatus::Success)
                 std::wcout << L"Pro Controller notifications enabled.\n";
@@ -1367,8 +1431,12 @@ int main()
             auto status = gcController.inputChar.WriteClientCharacteristicConfigurationDescriptorAsync(
                 GattClientCharacteristicConfigurationDescriptorValue::Notify).get();
 
-            if (gcController.writeChar)
+            if (gcController.writeChar) {
                 SendCustomCommands(gcController.writeChar); // Optional, only if NSO GC expects init commands
+                std::this_thread::sleep_for(std::chrono::milliseconds(200));
+                SetPlayerLEDs(gcController.writeChar, 0x01);
+                EmitSound(gcController.writeChar);
+            }
 
             if (status == GattCommunicationStatus::Success)
                 std::wcout << L"NSO GC Controller notifications enabled.\n";
