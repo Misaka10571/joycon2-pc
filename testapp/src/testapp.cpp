@@ -779,11 +779,25 @@ struct SingleJoyConPlayer {
     PVIGEM_TARGET ds4Controller;
     JoyConSide side;
     JoyConOrientation orientation;
-    bool opticalMouseEnabled = false;
+    
+    // Mouse State
+    int mouseMode = 0; // 0=Off, 1=Fast, 2=Normal, 3=Slow
     bool wasChatPressed = false;
     int16_t lastOpticalX = 0;
     int16_t lastOpticalY = 0;
     bool firstOpticalRead = true;
+    
+    // Scroll Accumulator
+    float scrollAccumulator = 0.0f;
+    
+    // Button States for Edge Detection (to avoid rapid fire)
+    bool mb4Pressed = false;
+    bool mb5Pressed = false;
+    
+    // Previous button states for click emulation
+    bool leftBtnPressed = false;
+    bool rightBtnPressed = false;
+    bool middleBtnPressed = false;
 };
 
 // For dual Joy-Con players, store both JoyCons, controller, thread, and running flag
@@ -927,51 +941,179 @@ int main()
                     // Optical Mouse Toggle Logic (Only for Right Joy-Con/Joy-Con 2)
                     if (joyconSide == JoyConSide::Right) {
                         uint32_t btnState = ExtractButtonState(buffer);
-                        // CHAT button mask 0x000040
+                        // CHAT button mask 0x000040 (Right JoyCon)
                         bool chatPressed = (btnState & 0x000040) != 0;
 
                         if (chatPressed && !player.wasChatPressed) {
-                            player.opticalMouseEnabled = !player.opticalMouseEnabled;
-                            std::cout << "Optical Mouse Mode: " << (player.opticalMouseEnabled ? "ON" : "OFF") << std::endl;
+                            player.mouseMode = (player.mouseMode + 1) % 4;
+                            const char* modeName = "OFF";
+                            if (player.mouseMode == 1) modeName = "FAST";
+                            else if (player.mouseMode == 2) modeName = "NORMAL";
+                            else if (player.mouseMode == 3) modeName = "SLOW";
+                            
+                            std::cout << "Optical Mouse Mode: " << modeName << std::endl;
                         }
                         player.wasChatPressed = chatPressed;
-                    }
-
-                    if (player.opticalMouseEnabled) {
-                        // Mouse Mode: Use Optical Sensor Data (0x10)
-                        auto [rawX, rawY] = GetRawOpticalMouse(buffer);
                         
-                        if (player.firstOpticalRead) {
-                            player.lastOpticalX = rawX;
-                            player.lastOpticalY = rawY;
-                            player.firstOpticalRead = false;
-                        } else {
-                            // Calculate Delta
-                            int16_t dx = rawX - player.lastOpticalX;
-                            int16_t dy = rawY - player.lastOpticalY;
-                            
-                            // Update last state
-                            player.lastOpticalX = rawX;
-                            player.lastOpticalY = rawY;
+                        // If Mouse Mode is ON (1, 2, or 3)
+                        if (player.mouseMode > 0) {
+                            // --- 1. Optical Mouse Movement ---
+                            auto [rawX, rawY] = GetRawOpticalMouse(buffer);
+                            if (player.firstOpticalRead) {
+                                player.lastOpticalX = rawX;
+                                player.lastOpticalY = rawY;
+                                player.firstOpticalRead = false;
+                            } else {
+                                int16_t dx = rawX - player.lastOpticalX;
+                                int16_t dy = rawY - player.lastOpticalY;
+                                player.lastOpticalX = rawX;
+                                player.lastOpticalY = rawY;
 
-                            // Move Mouse if there is movement
-                            if (dx != 0 || dy != 0) {
-                                // Apply sensitivity (adjust as needed)
-                                // raw delta might be large or small depending on DPI
-                                int moveX = dx; 
-                                int moveY = dy; 
-
-                                INPUT input = {};
-                                input.type = INPUT_MOUSE;
-                                input.mi.dx = moveX;
-                                input.mi.dy = moveY;
-                                input.mi.dwFlags = MOUSEEVENTF_MOVE;
-                                SendInput(1, &input, sizeof(INPUT));
+                                if (dx != 0 || dy != 0) {
+                                    float sensitivity = 1.0f;
+                                    if (player.mouseMode == 1) sensitivity = 1.0f;      // TODO: Fast 可调
+                                    else if (player.mouseMode == 2) sensitivity = 0.6f; // TODO: Normal 可调
+                                    else if (player.mouseMode == 3) sensitivity = 0.3f; // TODO: Slow 可调
+                                    
+                                    int moveX = static_cast<int>(dx * sensitivity);
+                                    int moveY = static_cast<int>(dy * sensitivity);
+                                    
+                                    INPUT input = {};
+                                    input.type = INPUT_MOUSE;
+                                    input.mi.dx = moveX;
+                                    input.mi.dy = moveY;
+                                    input.mi.dwFlags = MOUSEEVENTF_MOVE;
+                                    SendInput(1, &input, sizeof(INPUT));
+                                }
                             }
+                            
+                            // --- 2. Mouse Buttons (R=Left, ZR=Right, Stick=Middle) ---
+                            // R = 0x004000, ZR = 0x008000, Stick = 0x000004
+                            bool rPressed = (btnState & 0x004000) != 0;
+                            bool zrPressed = (btnState & 0x008000) != 0;
+                            bool stickPressed = (btnState & 0x000004) != 0;
+                            
+                            // Left Click (R)
+                            if (rPressed && !player.leftBtnPressed) {
+                                INPUT input = {}; input.type = INPUT_MOUSE; input.mi.dwFlags = MOUSEEVENTF_LEFTDOWN; SendInput(1, &input, sizeof(INPUT));
+                            } else if (!rPressed && player.leftBtnPressed) {
+                                INPUT input = {}; input.type = INPUT_MOUSE; input.mi.dwFlags = MOUSEEVENTF_LEFTUP; SendInput(1, &input, sizeof(INPUT));
+                            }
+                            player.leftBtnPressed = rPressed;
+                            
+                            // Right Click (ZR)
+                            if (zrPressed && !player.rightBtnPressed) {
+                                INPUT input = {}; input.type = INPUT_MOUSE; input.mi.dwFlags = MOUSEEVENTF_RIGHTDOWN; SendInput(1, &input, sizeof(INPUT));
+                            } else if (!zrPressed && player.rightBtnPressed) {
+                                INPUT input = {}; input.type = INPUT_MOUSE; input.mi.dwFlags = MOUSEEVENTF_RIGHTUP; SendInput(1, &input, sizeof(INPUT));
+                            }
+                            player.rightBtnPressed = zrPressed;
+                            
+                            // Middle Click (Stick)
+                            if (stickPressed && !player.middleBtnPressed) {
+                                INPUT input = {}; input.type = INPUT_MOUSE; input.mi.dwFlags = MOUSEEVENTF_MIDDLEDOWN; SendInput(1, &input, sizeof(INPUT));
+                            } else if (!stickPressed && player.middleBtnPressed) {
+                                INPUT input = {}; input.type = INPUT_MOUSE; input.mi.dwFlags = MOUSEEVENTF_MIDDLEUP; SendInput(1, &input, sizeof(INPUT));
+                            }
+                            player.middleBtnPressed = stickPressed;
+                            
+                            // --- 3. Stick Scrolling & Side Buttons ---
+                            auto stickData = DecodeJoystick(buffer, joyconSide, joyconOrientation);
+                            
+                            // Scroll (Vertical Stick)
+                            // stickData.y is normalized int16 (-32767 to 32767).
+                            // Up is typically negative Y in raw data?, DecodeJoystick returns standard cartesian?
+                            // Let's check testapp logic: outY = -y * 32767. If y was (y_raw - 2048), then raw 4095 (down) -> +y -> outY negative.
+                            // So DecodeJoystick: Up (+y_raw?) -> outY Positive?
+                            // Let's assume standard behavior: Up is Positive Y, Down is Negative Y in stickData (based on math).
+                            // Windows Wheel: +Delta is Up, -Delta is Down.
+                            
+                            // Let's try: Stick Up -> Scroll Up.
+                            // If stickData.y > deadzone -> Scroll Up.
+                            // Speed proportional to magnitude.
+                            
+                            const int SCROLL_DEADZONE = 4000;
+                            if (abs(stickData.y) > SCROLL_DEADZONE) {
+                                // Accumulate scroll
+                                float intensity = (abs(stickData.y) - SCROLL_DEADZONE) / (32767.0f - SCROLL_DEADZONE);
+                                float speed = intensity * 40.0f; // Max scroll per frame // TODO: 滚轮速度可调
+                                if (stickData.y > 0) player.scrollAccumulator -= speed; // Up
+                                else player.scrollAccumulator += speed; // Down
+                                
+                                if (abs(player.scrollAccumulator) >= 120.0f) {
+                                    int clicks = static_cast<int>(player.scrollAccumulator / 120.0f);
+                                    player.scrollAccumulator -= (clicks * 120.0f);
+                                    
+                                    INPUT input = {};
+                                    input.type = INPUT_MOUSE;
+                                    input.mi.mouseData = clicks * 120;
+                                    input.mi.dwFlags = MOUSEEVENTF_WHEEL;
+                                    SendInput(1, &input, sizeof(INPUT));
+                                }
+                            } else {
+                                player.scrollAccumulator = 0.0f;
+                            }
+                            
+                            // Side Buttons (Horizontal Stick)
+                            // Left Peak -> Back (MB4)
+                            // Right Peak -> Forward (MB5)
+                            const int BUTTON_THRESHOLD = 28000; // Near edge
+                            
+                            // MB4 (Back) - Left
+                            if (stickData.x < -BUTTON_THRESHOLD) {
+                                if (!player.mb4Pressed) {
+                                    INPUT input = {}; input.type = INPUT_MOUSE; input.mi.mouseData = XBUTTON1; input.mi.dwFlags = MOUSEEVENTF_XDOWN; SendInput(1, &input, sizeof(INPUT));
+                                    INPUT input2 = {}; input2.type = INPUT_MOUSE; input2.mi.mouseData = XBUTTON1; input2.mi.dwFlags = MOUSEEVENTF_XUP; SendInput(1, &input2, sizeof(INPUT));
+                                    player.mb4Pressed = true;
+                                }
+                            } else {
+                                player.mb4Pressed = false;
+                            }
+                            
+                            // MB5 (Forward) - Right
+                            if (stickData.x > BUTTON_THRESHOLD) {
+                                if (!player.mb5Pressed) {
+                                    INPUT input = {}; input.type = INPUT_MOUSE; input.mi.mouseData = XBUTTON2; input.mi.dwFlags = MOUSEEVENTF_XDOWN; SendInput(1, &input, sizeof(INPUT));
+                                    INPUT input2 = {}; input2.type = INPUT_MOUSE; input2.mi.mouseData = XBUTTON2; input2.mi.dwFlags = MOUSEEVENTF_XUP; SendInput(1, &input2, sizeof(INPUT));
+                                    player.mb5Pressed = true;
+                                }
+                            } else {
+                                player.mb5Pressed = false;
+                            }
+                            
+                            // --- 4. Suppress Inputs in DS4 Report ---
+                            // Modify buffer to clear mapped buttons so they don't trigger game actions
+                            // R (Byte 3, bit 6: 0x40), ZR (Byte 4, bit 7: 0x80 ... wait, let's check masks)
+                            
+                            // Button masks again:
+                            // R: 0x004000 -> Byte 3 & 0x40.
+                            // ZR: 0x008000 -> Byte 4 & 0x80 (Wait, 0x008000 is 3rd byte of 24-bit? 3,4,5. 0x004000 is 0x40 << 8? No)
+                            // ExtractButtonState: (buffer[3] << 16) | (buffer[4] << 8) | buffer[5]
+                            // 0x004000 = Bit 14 set.
+                            // buffer[3] is bits 23-16. buffer[4] is 15-8. buffer[5] is 7-0.
+                            // 0x4000 is in buffer[4] (0x40 << 8).
+                            // 0x8000 is in buffer[4] (0x80 << 8).
+                            // Stick Click 0x04 is in buffer[5].
+                            
+                            // So:
+                            // Clear R bit (0x40 in buffer[4])
+                            buffer[4] &= ~0x40;
+                            // Clear ZR bit (0x80 in buffer[4])
+                            buffer[4] &= ~0x80;
+                            // Clear Stick Click (0x04 in buffer[5])
+                            buffer[5] &= ~0x04;
+                            
+                            // Clear Stick Data (Set to center)
+                            // Right stick bytes: 13, 14, 15
+                            if (buffer.size() >= 16) {
+                                buffer[13] = 0x00;
+                                buffer[14] = 0x08;
+                                buffer[15] = 0x80;
+                            }
+                        } else {
+                            // Mode Off: Reset first reads
+                            player.firstOpticalRead = true;
                         }
-                    } else {
-                         // Reset first read flag if we disable it, ensuring smooth start next time
-                         player.firstOpticalRead = true;
                     }
 
                     DS4_REPORT_EX report = GenerateDS4Report(buffer, joyconSide, joyconOrientation);
