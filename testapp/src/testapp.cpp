@@ -822,7 +822,7 @@ struct SingleJoyConPlayer {
     JoyConOrientation orientation;
     
     // Mouse State
-    int mouseMode = 2; // 0=Off, 1=Fast, 2=Normal, 3=Slow
+    int mouseMode = 0; // 0=Off, 1=Fast, 2=Normal, 3=Slow
     bool wasChatPressed = false;
     int16_t lastOpticalX = 0;
     int16_t lastOpticalY = 0;
@@ -988,17 +988,22 @@ int main()
                         if (chatPressed && !player.wasChatPressed) {
                             player.mouseMode = (player.mouseMode + 1) % 4;
                             const char* modeName = "OFF";
+                            uint8_t ledPattern = 0x01; // Default OFF = LED 1
                             if (player.mouseMode == 1) {
                                 modeName = "FAST";
+                                ledPattern = 0x02; // LED 2
                             }
                             else if (player.mouseMode == 2) {
                                 modeName = "NORMAL";
+                                ledPattern = 0x04; // LED 3
                             }
                             else if (player.mouseMode == 3) {
                                 modeName = "SLOW";
+                                ledPattern = 0x08; // LED 4
                             }
                             
                             std::cout << "Optical Mouse Mode: " << modeName << std::endl;
+                            SetPlayerLEDs(player.joycon.writeChar, ledPattern);
                             EmitSound(player.joycon.writeChar);
                         }
                         player.wasChatPressed = chatPressed;
