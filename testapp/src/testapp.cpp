@@ -779,6 +779,11 @@ struct SingleJoyConPlayer {
     PVIGEM_TARGET ds4Controller;
     JoyConSide side;
     JoyConOrientation orientation;
+    bool opticalMouseEnabled = false;
+    bool wasChatPressed = false;
+    int16_t lastOpticalX = 0;
+    int16_t lastOpticalY = 0;
+    bool firstOpticalRead = true;
 };
 
 // For dual Joy-Con players, store both JoyCons, controller, thread, and running flag
@@ -919,11 +924,61 @@ int main()
                     std::vector<uint8_t> buffer(reader.UnconsumedBufferLength());
                     reader.ReadBytes(buffer);
 
+                    // Optical Mouse Toggle Logic (Only for Right Joy-Con/Joy-Con 2)
+                    if (joyconSide == JoyConSide::Right) {
+                        uint32_t btnState = ExtractButtonState(buffer);
+                        // CHAT button mask 0x000040
+                        bool chatPressed = (btnState & 0x000040) != 0;
+
+                        if (chatPressed && !player.wasChatPressed) {
+                            player.opticalMouseEnabled = !player.opticalMouseEnabled;
+                            std::cout << "Optical Mouse Mode: " << (player.opticalMouseEnabled ? "ON" : "OFF") << std::endl;
+                        }
+                        player.wasChatPressed = chatPressed;
+                    }
+
+                    if (player.opticalMouseEnabled) {
+                        // Mouse Mode: Use Optical Sensor Data (0x10)
+                        auto [rawX, rawY] = GetRawOpticalMouse(buffer);
+                        
+                        if (player.firstOpticalRead) {
+                            player.lastOpticalX = rawX;
+                            player.lastOpticalY = rawY;
+                            player.firstOpticalRead = false;
+                        } else {
+                            // Calculate Delta
+                            int16_t dx = rawX - player.lastOpticalX;
+                            int16_t dy = rawY - player.lastOpticalY;
+                            
+                            // Update last state
+                            player.lastOpticalX = rawX;
+                            player.lastOpticalY = rawY;
+
+                            // Move Mouse if there is movement
+                            if (dx != 0 || dy != 0) {
+                                // Apply sensitivity (adjust as needed)
+                                // raw delta might be large or small depending on DPI
+                                int moveX = dx; 
+                                int moveY = dy; 
+
+                                INPUT input = {};
+                                input.type = INPUT_MOUSE;
+                                input.mi.dx = moveX;
+                                input.mi.dy = moveY;
+                                input.mi.dwFlags = MOUSEEVENTF_MOVE;
+                                SendInput(1, &input, sizeof(INPUT));
+                            }
+                        }
+                    } else {
+                         // Reset first read flag if we disable it, ensuring smooth start next time
+                         player.firstOpticalRead = true;
+                    }
+
                     DS4_REPORT_EX report = GenerateDS4Report(buffer, joyconSide, joyconOrientation);
 
                     auto ret = vigem_target_ds4_update_ex(vigem_client, player.ds4Controller, report);
                     if (!VIGEM_SUCCESS(ret)) {
-                        std::wcerr << L"Failed to update DS4 EX report: 0x" << std::hex << ret << L"\n";
+                         // std::wcerr << L"Failed to update DS4 EX report: 0x" << std::hex << ret << L"\n";
                     }
                 });
 

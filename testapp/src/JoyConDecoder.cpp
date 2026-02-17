@@ -29,10 +29,13 @@ constexpr uint32_t BUTTON_MINUS_MASK_LEFT = 0x000100;
 constexpr uint32_t BUTTON_L_MASK_LEFT = 0x000040;
 constexpr uint32_t BUTTON_STICK_MASK_LEFT = 0x000800;
 
-static std::pair<int16_t, int16_t> decode_joystick(const std::vector<uint8_t>& buffer, bool isLeft, bool upright) {
+StickData DecodeJoystick(const std::vector<uint8_t>& buffer, JoyConSide side, JoyConOrientation orientation) {
     if (buffer.size() < 16) {
-        return { 0, 0 };
+        return { 0, 0, 0, 0 };
     }
+
+    bool isLeft = (side == JoyConSide::Left);
+    bool upright = (orientation == JoyConOrientation::Upright);
 
     const uint8_t* data = isLeft ? &buffer[10] : &buffer[13];
 
@@ -50,7 +53,7 @@ static std::pair<int16_t, int16_t> decode_joystick(const std::vector<uint8_t>& b
 
     const float deadzone = 0.08f;
     if (std::abs(x) < deadzone && std::abs(y) < deadzone) {
-        return { 0, 0 };
+        return { 0, 0, 0, 0 };
     }
 
     x = std::clamp(x * 1.7f, -1.0f, 1.0f);
@@ -59,7 +62,12 @@ static std::pair<int16_t, int16_t> decode_joystick(const std::vector<uint8_t>& b
     int16_t outX = static_cast<int16_t>(x * 32767);
     int16_t outY = static_cast<int16_t>(-y * 32767);
 
-    return { outX, outY };
+    return { outX, outY, 0, 0 };
+}
+
+static std::pair<int16_t, int16_t> decode_joystick(const std::vector<uint8_t>& buffer, bool isLeft, bool upright) {
+    auto res = DecodeJoystick(buffer, isLeft ? JoyConSide::Left : JoyConSide::Right, upright ? JoyConOrientation::Upright : JoyConOrientation::Sideways);
+    return { res.x, res.y };
 }
 
 std::pair<uint16_t, uint16_t> DecodeMouseCoords(const std::vector<uint8_t>& buffer) {
@@ -479,3 +487,14 @@ DS4_REPORT_EX GenerateNSOGCReport(const std::vector<uint8_t>& buffer)
 }
 
 
+uint32_t ExtractButtonState(const std::vector<uint8_t>& buffer) {
+    if (buffer.size() < 6) return 0;
+    return (buffer[3] << 16) | (buffer[4] << 8) | buffer[5];
+}
+
+std::pair<int16_t, int16_t> GetRawOpticalMouse(const std::vector<uint8_t>& buffer) {
+    if (buffer.size() < 0x18) return { 0, 0 };
+    int16_t raw_x = to_signed_16(buffer[0x10], buffer[0x11]);
+    int16_t raw_y = to_signed_16(buffer[0x12], buffer[0x13]);
+    return { raw_x, raw_y };
+}
