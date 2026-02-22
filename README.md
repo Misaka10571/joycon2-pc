@@ -24,6 +24,7 @@ You're free to make your own macOS/Linux fork if you want.
 - If using a singular joycon you'll be asked if its Left or Right
 - If using dual joycons itll ask you to pair one joycon then the other
 - When its all done, you'll have SDL controllers ready for every player to use.
+- Click the chat button to toggle mouse functions，3 adjustable modes for the mouse pointer.
 
 >  Note: Bit layouts differ slightly between left and right Joy-Cons, so correct side pairing is important.
 > 
