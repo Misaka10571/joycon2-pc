@@ -45,11 +45,12 @@ Make sure the following are installed via Visual Studio Installer:
 
  (Optional but useful) C++/WinRT  
 
-1. Open a command prompt or PowerShell in the project root folder.
+1. Open the x64 Native Tools Command Prompt for VS (whatever your version is)
 
-2. Create and enter a build directory:
+2. Go into the project's root directory and make a build folder:
 
    ```sh
+   cd (path to the main directory of the project here)
    mkdir build
    cd build
 
