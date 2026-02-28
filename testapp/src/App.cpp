@@ -146,7 +146,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
     wc.style = CS_CLASSDC;
     wc.lpfnWndProc = WndProc;
     wc.hInstance = hInstance;
-    wc.hCursor = LoadCursorW(NULL, IDC_ARROW);
+    wc.hCursor = LoadCursorA(NULL, IDC_ARROW);
     wc.lpszClassName = L"JoyCon2ConnectorClass";
     RegisterClassExW(&wc);
 

@@ -9,6 +9,7 @@
 #include "UI_Theme.h"
 #include <string>
 #include <cmath>
+#include "imgui_internal.h"
 
 // Current wizard state for Add Device
 struct AddDeviceWizard {
