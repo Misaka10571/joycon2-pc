@@ -726,7 +726,9 @@ ConnectedJoyCon WaitForJoyCon(const std::wstring& prompt)
     ConnectedJoyCon cj{};
 
     BluetoothLEDevice device = nullptr;
-    bool connected = false;
+    // Use atomic flag to avoid race: notify_one() can fire before wait_for() if
+    // the JoyCon is already powered on when scanning starts.
+    std::atomic<bool> connected{ false };
 
     BluetoothLEAdvertisementWatcher watcher;
 
@@ -735,8 +737,8 @@ ConnectedJoyCon WaitForJoyCon(const std::wstring& prompt)
 
     watcher.Received([&](auto const&, auto const& args)
         {
-            std::unique_lock<std::mutex> lock(mtx);
-            if (connected) return;
+            // Check flag first (lock-free fast path) to skip duplicate events
+            if (connected.load(std::memory_order_acquire)) return;
 
             auto mfg = args.Advertisement().ManufacturerData();
             for (uint32_t i = 0; i < mfg.Size(); i++)
@@ -749,11 +751,25 @@ ConnectedJoyCon WaitForJoyCon(const std::wstring& prompt)
                 if (data.size() >= JOYCON_MANUFACTURER_PREFIX.size() &&
                     std::equal(JOYCON_MANUFACTURER_PREFIX.begin(), JOYCON_MANUFACTURER_PREFIX.end(), data.begin()))
                 {
-                    device = BluetoothLEDevice::FromBluetoothAddressAsync(args.BluetoothAddress()).get();
-                    if (!device) return;
+                    // Atomically claim the connection slot
+                    bool expected = false;
+                    if (!connected.compare_exchange_strong(expected, true, std::memory_order_acq_rel))
+                        return; // Another invocation of this callback already claimed it
 
-                    connected = true;
-                    watcher.Stop();
+                    BluetoothLEDevice dev = BluetoothLEDevice::FromBluetoothAddressAsync(args.BluetoothAddress()).get();
+                    if (!dev) {
+                        // Failed to open device — reset flag and let the scan continue
+                        connected.store(false, std::memory_order_release);
+                        return;
+                    }
+
+                    {
+                        std::lock_guard<std::mutex> lock(mtx);
+                        device = dev;
+                    }
+                    // NOTE: Do NOT call watcher.Stop() here from inside the callback.
+                    // On WinRT, Stop() is synchronous and waits for all in-flight event
+                    // handlers — calling it from within the handler itself deadlocks.
                     cv.notify_one();
                     return;
                 }
@@ -767,13 +783,18 @@ ConnectedJoyCon WaitForJoyCon(const std::wstring& prompt)
 
     {
         std::unique_lock<std::mutex> lock(mtx);
-        if (!cv.wait_for(lock, std::chrono::seconds(30), [&]() { return connected; }))
+        // wait_for checks the predicate before sleeping, so a notification that
+        // arrived before we started waiting is not lost.
+        if (!cv.wait_for(lock, std::chrono::seconds(30), [&]() { return connected.load(std::memory_order_acquire); }))
         {
-            watcher.Stop();
             std::wcerr << L"Timeout: Joy-Con not found.\n";
+            // Stop the watcher from the main thread (safe — not inside callback)
+            watcher.Stop();
             exit(1);
         }
     }
+    // Stop the watcher from the main thread after wait_for returns (safe path)
+    watcher.Stop();
 
     cj.device = device;
 
@@ -849,6 +870,9 @@ struct DualJoyConPlayer {
     PVIGEM_TARGET ds4Controller;
     std::atomic<bool> running;
     std::thread updateThread;
+    // Buffers stored here so their lifetime matches the player (not the loop block)
+    std::atomic<std::shared_ptr<std::vector<uint8_t>>> leftBufferAtomic{ std::make_shared<std::vector<uint8_t>>() };
+    std::atomic<std::shared_ptr<std::vector<uint8_t>>> rightBufferAtomic{ std::make_shared<std::vector<uint8_t>>() };
 };
 
 // For Pro Controller players
@@ -1250,15 +1274,14 @@ int main()
             dualPlayer->ds4Controller = ds4Controller;
             dualPlayer->running.store(true);
 
-            std::atomic<std::shared_ptr<std::vector<uint8_t>>> leftBufferAtomic{ std::make_shared<std::vector<uint8_t>>() };
-            std::atomic<std::shared_ptr<std::vector<uint8_t>>> rightBufferAtomic{ std::make_shared<std::vector<uint8_t>>() };
-
-            dualPlayer->leftJoyCon.inputChar.ValueChanged([&leftBufferAtomic](GattCharacteristic const&, GattValueChangedEventArgs const& args)
+            // NOTE: leftBufferAtomic and rightBufferAtomic now live inside dualPlayer
+            // (not as local stack variables), so the update thread cannot outlive them.
+            dualPlayer->leftJoyCon.inputChar.ValueChanged([dualPlayerPtr = dualPlayer.get()](GattCharacteristic const&, GattValueChangedEventArgs const& args)
                 {
                     auto reader = DataReader::FromBuffer(args.CharacteristicValue());
                     auto buf = std::make_shared<std::vector<uint8_t>>(reader.UnconsumedBufferLength());
                     reader.ReadBytes(*buf);
-                    leftBufferAtomic.store(buf, std::memory_order_release);
+                    dualPlayerPtr->leftBufferAtomic.store(buf, std::memory_order_release);
                 });
 
             auto statusLeft = dualPlayer->leftJoyCon.inputChar.WriteClientCharacteristicConfigurationDescriptorAsync(
@@ -1269,12 +1292,12 @@ int main()
             else
                 std::wcout << L"Failed to enable LEFT Joy-Con notifications.\n";
 
-            dualPlayer->rightJoyCon.inputChar.ValueChanged([&rightBufferAtomic](GattCharacteristic const&, GattValueChangedEventArgs const& args)
+            dualPlayer->rightJoyCon.inputChar.ValueChanged([dualPlayerPtr = dualPlayer.get()](GattCharacteristic const&, GattValueChangedEventArgs const& args)
                 {
                     auto reader = DataReader::FromBuffer(args.CharacteristicValue());
                     auto buf = std::make_shared<std::vector<uint8_t>>(reader.UnconsumedBufferLength());
                     reader.ReadBytes(*buf);
-                    rightBufferAtomic.store(buf, std::memory_order_release);
+                    dualPlayerPtr->rightBufferAtomic.store(buf, std::memory_order_release);
                 });
 
             auto statusRight = dualPlayer->rightJoyCon.inputChar.WriteClientCharacteristicConfigurationDescriptorAsync(
@@ -1285,12 +1308,12 @@ int main()
             else
                 std::wcout << L"Failed to enable RIGHT Joy-Con notifications.\n";
 
-            dualPlayer->updateThread = std::thread([dualPlayerPtr = dualPlayer.get(), &leftBufferAtomic, &rightBufferAtomic]()
+            dualPlayer->updateThread = std::thread([dualPlayerPtr = dualPlayer.get()]()
                 {
                     while (dualPlayerPtr->running.load(std::memory_order_acquire))
                     {
-                        auto leftBuf = leftBufferAtomic.load(std::memory_order_acquire);
-                        auto rightBuf = rightBufferAtomic.load(std::memory_order_acquire);
+                        auto leftBuf = dualPlayerPtr->leftBufferAtomic.load(std::memory_order_acquire);
+                        auto rightBuf = dualPlayerPtr->rightBufferAtomic.load(std::memory_order_acquire);
 
                         if (leftBuf->empty() || rightBuf->empty())
                         {

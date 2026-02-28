@@ -224,8 +224,13 @@ DS4_REPORT_EX GenerateDualJoyConDS4Report(const std::vector<uint8_t>& leftBuffer
     report.Report.sCurrentTouch.bTouchData2[1] = ((x2 >> 8) & 0x0F) | ((y2 & 0x0F) << 4);
     report.Report.sCurrentTouch.bTouchData2[2] = (y2 >> 4) & 0xFF;
 
-    uint32_t leftState = (leftBuffer[4] << 16) | (leftBuffer[5] << 8) | leftBuffer[6];
-    uint32_t rightState = (rightBuffer[3] << 16) | (rightBuffer[4] << 8) | rightBuffer[5];
+    // Guard individual buffer sizes before direct byte access
+    uint32_t leftState = (leftBuffer.size() >= 7)
+        ? ((leftBuffer[4] << 16) | (leftBuffer[5] << 8) | leftBuffer[6])
+        : 0;
+    uint32_t rightState = (rightBuffer.size() >= 6)
+        ? ((rightBuffer[3] << 16) | (rightBuffer[4] << 8) | rightBuffer[5])
+        : 0;
 
     BYTE lt = 0, rt = 0;
     bool ls = false, rs = false;
@@ -423,7 +428,8 @@ DS4_REPORT_EX GenerateNSOGCReport(const std::vector<uint8_t>& buffer)
     DS4_REPORT_EX report{};
     DS4_REPORT_INIT(reinterpret_cast<PDS4_REPORT>(&report.Report));
 
-    if (buffer.size() < 0x3C) {
+    // Need at least 0x3E bytes: indices 0x3c and 0x3d are accessed for trigger values
+    if (buffer.size() < 0x3E) {
         return report;
     }
 
@@ -497,4 +503,16 @@ std::pair<int16_t, int16_t> GetRawOpticalMouse(const std::vector<uint8_t>& buffe
     int16_t raw_x = to_signed_16(buffer[0x10], buffer[0x11]);
     int16_t raw_y = to_signed_16(buffer[0x12], buffer[0x13]);
     return { raw_x, raw_y };
+}
+
+MotionData DecodeMotion(const std::vector<uint8_t>& buffer) {
+    MotionData m{};
+    if (buffer.size() < 0x3C) return m;
+    m.accelX = to_signed_16(buffer[0x30], buffer[0x31]);
+    m.accelY = to_signed_16(buffer[0x32], buffer[0x33]);
+    m.accelZ = to_signed_16(buffer[0x34], buffer[0x35]);
+    m.gyroX  = to_signed_16(buffer[0x36], buffer[0x37]);
+    m.gyroY  = to_signed_16(buffer[0x38], buffer[0x39]);
+    m.gyroZ  = to_signed_16(buffer[0x3A], buffer[0x3B]);
+    return m;
 }
