@@ -1,8 +1,13 @@
 #pragma once
-// UI Theme - Material Design 3 inspired warm palette
+// UI Theme - Material Design 3 inspired warm palette with DPI scaling
 #include "imgui/imgui.h"
+#include <algorithm>
 
 namespace UITheme {
+
+// DPI scaling
+inline float DpiScale = 1.0f;
+inline float S(float v) { return v * DpiScale; }
 
 // Color palette — warm tones: teal primary, sage accents, warm gray surfaces
 inline ImVec4 ColorFromHex(unsigned int hex, float alpha = 1.0f) {
@@ -48,22 +53,23 @@ inline const ImVec4 ButtonDangerHov     = ColorFromHex(0xE8C4C4);  // Red hover
 
 inline void Apply() {
     ImGuiStyle& style = ImGui::GetStyle();
+    float s = DpiScale;
 
-    // Rounding
-    style.WindowRounding    = 0.0f;     // Full window — no rounding
-    style.ChildRounding     = 12.0f;    // Card rounding
-    style.FrameRounding     = 8.0f;     // Button/input rounding
-    style.PopupRounding     = 12.0f;
-    style.ScrollbarRounding = 8.0f;
-    style.GrabRounding      = 8.0f;
-    style.TabRounding       = 8.0f;
+    // Rounding — MD3 uses full capsule for buttons (20dp)
+    style.WindowRounding    = 0.0f;
+    style.ChildRounding     = 12.0f * s;
+    style.FrameRounding     = 20.0f * s;   // MD3 capsule buttons
+    style.PopupRounding     = 12.0f * s;
+    style.ScrollbarRounding = 8.0f * s;
+    style.GrabRounding      = 8.0f * s;
+    style.TabRounding       = 8.0f * s;
 
     // Spacing
     style.WindowPadding     = ImVec2(0, 0);
-    style.FramePadding      = ImVec2(16, 10);
-    style.ItemSpacing       = ImVec2(12, 8);
-    style.ItemInnerSpacing  = ImVec2(8, 4);
-    style.ScrollbarSize     = 8.0f;
+    style.FramePadding      = ImVec2(24.0f * s, 10.0f * s);
+    style.ItemSpacing       = ImVec2(12.0f * s, 8.0f * s);
+    style.ItemInnerSpacing  = ImVec2(8.0f * s, 4.0f * s);
+    style.ScrollbarSize     = 8.0f * s;
 
     // Borders
     style.WindowBorderSize  = 0.0f;

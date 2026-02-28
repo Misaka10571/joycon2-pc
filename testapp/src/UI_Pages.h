@@ -9,7 +9,11 @@
 #include "UI_Theme.h"
 #include <string>
 #include <cmath>
+#include <algorithm>
 #include "imgui_internal.h"
+
+// DPI-scaled pixel helper (delegates to UITheme::S)
+inline float S(float v) { return UITheme::S(v); }
 
 // Current wizard state for Add Device
 struct AddDeviceWizard {
@@ -34,12 +38,13 @@ inline int g_selectedLayoutIndex = 0;
 inline char g_layoutNameBuf[128] = {};
 inline bool g_renamingLayout = false;
 
-// Helper: Draw a card background
+// Helper: Draw a card background with built-in padding
 inline void BeginCard(float width = 0, float minHeight = 0) {
-    ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 12.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, S(12));
     ImGui::PushStyleColor(ImGuiCol_ChildBg, UITheme::SurfaceCard);
     ImGui::PushStyleColor(ImGuiCol_Border, UITheme::Border);
     ImGui::PushStyleVar(ImGuiStyleVar_ChildBorderSize, 1.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(S(16), S(12)));
     if (width <= 0) width = ImGui::GetContentRegionAvail().x;
     float h = (minHeight > 0) ? minHeight : 0;
     ImGui::BeginChild(ImGui::GetID("card"), ImVec2(width, h), ImGuiChildFlags_Borders | ImGuiChildFlags_AutoResizeY);
@@ -47,7 +52,7 @@ inline void BeginCard(float width = 0, float minHeight = 0) {
 
 inline void EndCard() {
     ImGui::EndChild();
-    ImGui::PopStyleVar(2);
+    ImGui::PopStyleVar(3);
     ImGui::PopStyleColor(2);
 }
 
@@ -59,35 +64,54 @@ inline void SectionLabel(const char* text) {
     ImGui::Spacing();
 }
 
-// Helper: Primary button
+// Helper: Get MD3 button size (height = 40dp, min width = 88dp)
+inline ImVec2 MD3ButtonSize(ImVec2 requested = ImVec2(0, 0)) {
+    float h = (requested.y > 0) ? requested.y : S(40);
+    float w = requested.x; // 0 = auto-fit
+    return ImVec2(w, h);
+}
+
+// Helper: Primary button (MD3 Filled Button)
 inline bool PrimaryButton(const char* label, ImVec2 size = ImVec2(0, 0)) {
+    size = MD3ButtonSize(size);
     ImGui::PushStyleColor(ImGuiCol_Button, UITheme::Primary);
     ImGui::PushStyleColor(ImGuiCol_ButtonHovered, UITheme::PrimaryHover);
     ImGui::PushStyleColor(ImGuiCol_ButtonActive, UITheme::PrimaryActive);
     ImGui::PushStyleColor(ImGuiCol_Text, UITheme::OnPrimary);
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(S(24), S(10)));
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, S(20));
     bool result = ImGui::Button(label, size);
+    ImGui::PopStyleVar(2);
     ImGui::PopStyleColor(4);
     return result;
 }
 
-// Helper: Secondary button
+// Helper: Secondary button (MD3 Tonal Button)
 inline bool SecondaryButton(const char* label, ImVec2 size = ImVec2(0, 0)) {
+    size = MD3ButtonSize(size);
     ImGui::PushStyleColor(ImGuiCol_Button, UITheme::ButtonSecondary);
     ImGui::PushStyleColor(ImGuiCol_ButtonHovered, UITheme::ButtonSecondaryHov);
     ImGui::PushStyleColor(ImGuiCol_ButtonActive, UITheme::SurfaceDim);
     ImGui::PushStyleColor(ImGuiCol_Text, UITheme::TextPrimary);
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(S(24), S(10)));
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, S(20));
     bool result = ImGui::Button(label, size);
+    ImGui::PopStyleVar(2);
     ImGui::PopStyleColor(4);
     return result;
 }
 
-// Helper: Danger button
+// Helper: Danger button (MD3 Outlined/Error)
 inline bool DangerButton(const char* label, ImVec2 size = ImVec2(0, 0)) {
+    size = MD3ButtonSize(size);
     ImGui::PushStyleColor(ImGuiCol_Button, UITheme::ButtonDanger);
     ImGui::PushStyleColor(ImGuiCol_ButtonHovered, UITheme::ButtonDangerHov);
     ImGui::PushStyleColor(ImGuiCol_ButtonActive, UITheme::Error);
     ImGui::PushStyleColor(ImGuiCol_Text, UITheme::Error);
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(S(24), S(10)));
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, S(20));
     bool result = ImGui::Button(label, size);
+    ImGui::PopStyleVar(2);
     ImGui::PopStyleColor(4);
     return result;
 }
@@ -96,16 +120,15 @@ inline bool DangerButton(const char* label, ImVec2 size = ImVec2(0, 0)) {
 inline void StatusChip(const char* label, ImVec4 bg, ImVec4 textColor) {
     ImVec2 textSize = ImGui::CalcTextSize(label);
     ImVec2 pos = ImGui::GetCursorScreenPos();
-    float pad = 8.0f;
+    float pad = S(8);
     float chipH = textSize.y + pad * 2;
     float chipW = textSize.x + pad * 3;
 
     ImDrawList* dl = ImGui::GetWindowDrawList();
     dl->AddRectFilled(pos, ImVec2(pos.x + chipW, pos.y + chipH), ImGui::GetColorU32(bg), chipH * 0.5f);
-    // Circle indicator
-    float dotR = 4.0f;
+    float dotR = S(4);
     dl->AddCircleFilled(ImVec2(pos.x + pad + dotR, pos.y + chipH * 0.5f), dotR, ImGui::GetColorU32(textColor));
-    dl->AddText(ImVec2(pos.x + pad + dotR * 2 + 6, pos.y + pad), ImGui::GetColorU32(textColor), label);
+    dl->AddText(ImVec2(pos.x + pad + dotR * 2 + S(6), pos.y + pad), ImGui::GetColorU32(textColor), label);
     ImGui::Dummy(ImVec2(chipW, chipH));
 }
 
@@ -139,39 +162,127 @@ inline void Spinner(const char* label, float radius, float thickness, ImU32 colo
     }
 }
 
-// Controller type icon (drawn with ImGui shapes)
+// ===== MD3-style controller icons (SVG-quality DrawList rendering) =====
+
 inline void DrawControllerIcon(ControllerType type, ImVec2 pos, float scale, ImU32 color) {
     ImDrawList* dl = ImGui::GetWindowDrawList();
-    float s = scale;
+    float s = scale * UITheme::DpiScale;
+    ImU32 bg = ImGui::GetColorU32(ImVec4(1, 1, 1, 0.92f)); // cutout color
+    ImU32 bgSoft = ImGui::GetColorU32(ImVec4(1, 1, 1, 0.6f));
 
     switch (type) {
     case ControllerType::SingleJoyCon: {
-        // Simple rounded rectangle representing a single Joy-Con
-        dl->AddRectFilled(ImVec2(pos.x, pos.y), ImVec2(pos.x + 16*s, pos.y + 40*s), color, 6*s);
-        dl->AddCircleFilled(ImVec2(pos.x + 8*s, pos.y + 12*s), 4*s, ImGui::GetColorU32(UITheme::Surface)); // Stick
-        dl->AddRectFilled(ImVec2(pos.x + 4*s, pos.y + 22*s), ImVec2(pos.x + 12*s, pos.y + 26*s), ImGui::GetColorU32(UITheme::Surface), 1*s); // Buttons
+        // Tall rounded pill — Joy-Con silhouette
+        float w = 18 * s, h = 42 * s, r = 7 * s;
+        dl->AddRectFilled(ImVec2(pos.x, pos.y), ImVec2(pos.x + w, pos.y + h), color, r);
+        // Side rail
+        dl->AddRectFilled(ImVec2(pos.x, pos.y + 6 * s), ImVec2(pos.x + 2.5f * s, pos.y + h - 6 * s), bgSoft, 1 * s);
+        // Analog stick
+        dl->AddCircleFilled(ImVec2(pos.x + w * 0.5f, pos.y + 12 * s), 4.5f * s, bg);
+        dl->AddCircleFilled(ImVec2(pos.x + w * 0.5f, pos.y + 12 * s), 2.5f * s, color);
+        // Face buttons (4 dots in diamond)
+        float bx = pos.x + w * 0.5f, by = pos.y + 26 * s;
+        float bd = 3.5f * s, br = 1.5f * s;
+        dl->AddCircleFilled(ImVec2(bx, by - bd), br, bg);       // top
+        dl->AddCircleFilled(ImVec2(bx, by + bd), br, bg);       // bottom
+        dl->AddCircleFilled(ImVec2(bx - bd, by), br, bg);       // left
+        dl->AddCircleFilled(ImVec2(bx + bd, by), br, bg);       // right
+        // SR/SL indicators
+        dl->AddRectFilled(ImVec2(pos.x + w - 3 * s, pos.y + 14 * s), ImVec2(pos.x + w - 1 * s, pos.y + 18 * s), bgSoft, 0.5f * s);
+        dl->AddRectFilled(ImVec2(pos.x + w - 3 * s, pos.y + 22 * s), ImVec2(pos.x + w - 1 * s, pos.y + 26 * s), bgSoft, 0.5f * s);
         break;
     }
     case ControllerType::DualJoyCon: {
         // Two Joy-Cons side by side
-        dl->AddRectFilled(ImVec2(pos.x, pos.y), ImVec2(pos.x + 14*s, pos.y + 36*s), color, 5*s);
-        dl->AddRectFilled(ImVec2(pos.x + 18*s, pos.y), ImVec2(pos.x + 32*s, pos.y + 36*s), color, 5*s);
-        dl->AddCircleFilled(ImVec2(pos.x + 7*s, pos.y + 11*s), 3.5f*s, ImGui::GetColorU32(UITheme::Surface));
-        dl->AddCircleFilled(ImVec2(pos.x + 25*s, pos.y + 11*s), 3.5f*s, ImGui::GetColorU32(UITheme::Surface));
+        float jw = 16 * s, jh = 40 * s, gap = 3 * s, jr = 6 * s;
+        // Left Joy-Con
+        dl->AddRectFilled(ImVec2(pos.x, pos.y), ImVec2(pos.x + jw, pos.y + jh), color, jr);
+        dl->AddCircleFilled(ImVec2(pos.x + jw * 0.5f, pos.y + 11 * s), 4 * s, bg);
+        dl->AddCircleFilled(ImVec2(pos.x + jw * 0.5f, pos.y + 11 * s), 2 * s, color);
+        // D-pad cross on left
+        float dx = pos.x + jw * 0.5f, dy = pos.y + 25 * s;
+        dl->AddRectFilled(ImVec2(dx - 1.2f * s, dy - 4 * s), ImVec2(dx + 1.2f * s, dy + 4 * s), bg, 0.5f * s);
+        dl->AddRectFilled(ImVec2(dx - 4 * s, dy - 1.2f * s), ImVec2(dx + 4 * s, dy + 1.2f * s), bg, 0.5f * s);
+        // Rail indicators
+        dl->AddRectFilled(ImVec2(pos.x + jw - 2 * s, pos.y + 8 * s), ImVec2(pos.x + jw, pos.y + jh - 8 * s), bgSoft, 0.5f * s);
+
+        // Right Joy-Con
+        float rx = pos.x + jw + gap;
+        dl->AddRectFilled(ImVec2(rx, pos.y), ImVec2(rx + jw, pos.y + jh), color, jr);
+        // Face buttons (diamond)
+        float fbx = rx + jw * 0.5f, fby = pos.y + 11 * s;
+        float fbd = 3.5f * s, fbr = 1.5f * s;
+        dl->AddCircleFilled(ImVec2(fbx, fby - fbd), fbr, bg);
+        dl->AddCircleFilled(ImVec2(fbx, fby + fbd), fbr, bg);
+        dl->AddCircleFilled(ImVec2(fbx - fbd, fby), fbr, bg);
+        dl->AddCircleFilled(ImVec2(fbx + fbd, fby), fbr, bg);
+        // Right stick
+        dl->AddCircleFilled(ImVec2(rx + jw * 0.5f, pos.y + 25 * s), 4 * s, bg);
+        dl->AddCircleFilled(ImVec2(rx + jw * 0.5f, pos.y + 25 * s), 2 * s, color);
+        // Left rail
+        dl->AddRectFilled(ImVec2(rx, pos.y + 8 * s), ImVec2(rx + 2 * s, pos.y + jh - 8 * s), bgSoft, 0.5f * s);
         break;
     }
     case ControllerType::ProController: {
-        // Wide rounded rectangle
-        dl->AddRectFilled(ImVec2(pos.x, pos.y + 4*s), ImVec2(pos.x + 40*s, pos.y + 30*s), color, 8*s);
-        dl->AddCircleFilled(ImVec2(pos.x + 12*s, pos.y + 16*s), 4*s, ImGui::GetColorU32(UITheme::Surface)); // Left stick
-        dl->AddCircleFilled(ImVec2(pos.x + 28*s, pos.y + 16*s), 4*s, ImGui::GetColorU32(UITheme::Surface)); // Right stick
+        // Wide gamepad body with grips
+        float bw = 44 * s, bh = 28 * s, br = 10 * s;
+        float ox = pos.x + 2 * s, oy = pos.y + 4 * s;
+        // Main body
+        dl->AddRectFilled(ImVec2(ox, oy), ImVec2(ox + bw, oy + bh), color, br);
+        // Left grip extension
+        dl->AddRectFilled(ImVec2(ox, oy + bh * 0.4f), ImVec2(ox + 8 * s, oy + bh + 4 * s), color, 4 * s);
+        // Right grip extension
+        dl->AddRectFilled(ImVec2(ox + bw - 8 * s, oy + bh * 0.4f), ImVec2(ox + bw, oy + bh + 4 * s), color, 4 * s);
+        // Left analog stick
+        float lx = ox + 13 * s, ly = oy + 10 * s;
+        dl->AddCircleFilled(ImVec2(lx, ly), 5 * s, bg);
+        dl->AddCircleFilled(ImVec2(lx, ly), 2.5f * s, color);
+        // Right analog stick
+        float rrx = ox + bw - 13 * s, rry = oy + 16 * s;
+        dl->AddCircleFilled(ImVec2(rrx, rry), 5 * s, bg);
+        dl->AddCircleFilled(ImVec2(rrx, rry), 2.5f * s, color);
+        // D-pad (left side, below stick)
+        float dpx = ox + 13 * s, dpy = oy + 20 * s;
+        dl->AddRectFilled(ImVec2(dpx - 1.2f * s, dpy - 3.5f * s), ImVec2(dpx + 1.2f * s, dpy + 3.5f * s), bg, 0.5f * s);
+        dl->AddRectFilled(ImVec2(dpx - 3.5f * s, dpy - 1.2f * s), ImVec2(dpx + 3.5f * s, dpy + 1.2f * s), bg, 0.5f * s);
+        // ABXY buttons (right side, above stick)
+        float abx = ox + bw - 13 * s, aby = oy + 8 * s;
+        float abd = 3 * s, abr = 1.3f * s;
+        dl->AddCircleFilled(ImVec2(abx, aby - abd), abr, bg);
+        dl->AddCircleFilled(ImVec2(abx, aby + abd), abr, bg);
+        dl->AddCircleFilled(ImVec2(abx - abd, aby), abr, bg);
+        dl->AddCircleFilled(ImVec2(abx + abd, aby), abr, bg);
+        // Center home button
+        dl->AddCircleFilled(ImVec2(ox + bw * 0.5f, oy + 10 * s), 2.5f * s, bg);
         break;
     }
     case ControllerType::NSOGCController: {
-        // GameCube style — wider with distinctive shape
-        dl->AddRectFilled(ImVec2(pos.x + 2*s, pos.y + 2*s), ImVec2(pos.x + 38*s, pos.y + 28*s), color, 10*s);
-        dl->AddCircleFilled(ImVec2(pos.x + 14*s, pos.y + 14*s), 5*s, ImGui::GetColorU32(UITheme::Surface)); // Main stick
-        dl->AddCircleFilled(ImVec2(pos.x + 30*s, pos.y + 12*s), 3*s, ImGui::GetColorU32(UITheme::Surface)); // C-stick
+        // GameCube style — distinctive rounded shape
+        float bw = 42 * s, bh = 28 * s, br = 12 * s;
+        float ox = pos.x + 2 * s, oy = pos.y + 4 * s;
+        // Main body (more rounded)
+        dl->AddRectFilled(ImVec2(ox, oy), ImVec2(ox + bw, oy + bh), color, br);
+        // Left grip
+        dl->AddRectFilled(ImVec2(ox, oy + bh * 0.35f), ImVec2(ox + 7 * s, oy + bh + 3 * s), color, 4 * s);
+        // Right grip
+        dl->AddRectFilled(ImVec2(ox + bw - 7 * s, oy + bh * 0.35f), ImVec2(ox + bw, oy + bh + 3 * s), color, 4 * s);
+        // Main analog stick (large, left)
+        float lx = ox + 13 * s, ly = oy + 12 * s;
+        dl->AddCircleFilled(ImVec2(lx, ly), 5.5f * s, bg);
+        dl->AddCircleFilled(ImVec2(lx, ly), 3 * s, color);
+        // C-stick (small, right-top)
+        float cx = ox + bw - 12 * s, cy = oy + 9 * s;
+        dl->AddCircleFilled(ImVec2(cx, cy), 3 * s, ImGui::GetColorU32(UITheme::ColorFromHex(0xFFCC00))); // Yellow C-stick
+        dl->AddCircleFilled(ImVec2(cx, cy), 1.5f * s, color);
+        // Big A button (signature GC feature)
+        float ax = ox + bw - 14 * s, ay = oy + 18 * s;
+        dl->AddCircleFilled(ImVec2(ax, ay), 5 * s, ImGui::GetColorU32(ImVec4(0.3f, 0.8f, 0.4f, 0.7f))); // Green A
+        // Small B button
+        dl->AddCircleFilled(ImVec2(ax - 6 * s, ay + 2 * s), 2 * s, ImGui::GetColorU32(ImVec4(0.9f, 0.2f, 0.2f, 0.5f))); // Red B
+        // D-pad
+        float dpx = ox + 13 * s, dpy = oy + 22 * s;
+        dl->AddRectFilled(ImVec2(dpx - 1 * s, dpy - 3 * s), ImVec2(dpx + 1 * s, dpy + 3 * s), bg, 0.5f * s);
+        dl->AddRectFilled(ImVec2(dpx - 3 * s, dpy - 1 * s), ImVec2(dpx + 3 * s, dpy + 1 * s), bg, 0.5f * s);
         break;
     }
     }
@@ -181,10 +292,10 @@ inline void DrawControllerIcon(ControllerType type, ImVec2 pos, float scale, ImU
 // PAGE: Dashboard
 // =============================================================
 inline void RenderDashboard() {
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(24, 24));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(S(24), S(24)));
     ImGui::BeginChild("DashboardContent", ImVec2(0, 0), ImGuiChildFlags_None);
     ImGui::PopStyleVar();
-    ImGui::SetCursorPos(ImVec2(24, 16));
+    ImGui::SetCursorPos(ImVec2(S(24), S(16)));
 
     // ViGEm Status
     if (ViGEmManager::Instance().IsConnected()) {
@@ -209,12 +320,12 @@ inline void RenderDashboard() {
         // Center the empty state text
         const char* emptyText = T("dash_no_device");
         ImVec2 textSize = ImGui::CalcTextSize(emptyText);
-        ImGui::SetCursorPosX(24 + centerX - textSize.x * 0.5f);
+        ImGui::SetCursorPosX(S(24) + centerX - textSize.x * 0.5f);
         ImGui::TextColored(UITheme::TextSecondary, "%s", emptyText);
 
         const char* hintText = T("dash_no_device_hint");
         textSize = ImGui::CalcTextSize(hintText);
-        ImGui::SetCursorPosX(24 + centerX - textSize.x * 0.5f);
+        ImGui::SetCursorPosX(S(24) + centerX - textSize.x * 0.5f);
         ImGui::TextColored(UITheme::TextTertiary, "%s", hintText);
     } else {
         // Device cards
@@ -225,12 +336,11 @@ inline void RenderDashboard() {
             auto& p = pm.GetSinglePlayers()[i];
             ImGui::PushID(playerIndex * 100 + i);
             BeginCard(0, 0);
-            ImGui::SetCursorPos(ImVec2(16, 12));
 
             // Icon
             ImVec2 iconPos = ImGui::GetCursorScreenPos();
             DrawControllerIcon(ControllerType::SingleJoyCon, iconPos, 1.2f, ImGui::GetColorU32(UITheme::Primary));
-            ImGui::Dummy(ImVec2(24, 48));
+            ImGui::Dummy(ImVec2(S(28), S(52)));
             ImGui::SameLine();
 
             // Info
@@ -246,8 +356,8 @@ inline void RenderDashboard() {
             }
             ImGui::EndGroup();
 
-            ImGui::SameLine(ImGui::GetContentRegionAvail().x - 80);
-            if (DangerButton(T("dash_disconnect"), ImVec2(80, 32))) {
+            ImGui::SameLine(ImGui::GetContentRegionAvail().x - S(80));
+            if (DangerButton(T("dash_disconnect"))) {
                 pm.RemovePlayerByGlobalIndex(i);
                 ImGui::PopID();
                 EndCard();
@@ -265,11 +375,10 @@ inline void RenderDashboard() {
             auto& p = pm.GetDualPlayers()[i];
             ImGui::PushID(playerIndex * 100 + 50 + i);
             BeginCard(0, 0);
-            ImGui::SetCursorPos(ImVec2(16, 12));
 
             ImVec2 iconPos = ImGui::GetCursorScreenPos();
             DrawControllerIcon(ControllerType::DualJoyCon, iconPos, 1.2f, ImGui::GetColorU32(UITheme::Primary));
-            ImGui::Dummy(ImVec2(40, 48));
+            ImGui::Dummy(ImVec2(S(44), S(52)));
             ImGui::SameLine();
 
             ImGui::BeginGroup();
@@ -280,9 +389,9 @@ inline void RenderDashboard() {
             ImGui::TextColored(UITheme::TextSecondary, "%s  |  %s: %s", T("dash_mapping"), T("dash_gyro_source"), gyroName);
             ImGui::EndGroup();
 
-            ImGui::SameLine(ImGui::GetContentRegionAvail().x - 80);
+            ImGui::SameLine(ImGui::GetContentRegionAvail().x - S(80));
             int globalIdx = (int)pm.GetSinglePlayers().size() + i;
-            if (DangerButton(T("dash_disconnect"), ImVec2(80, 32))) {
+            if (DangerButton(T("dash_disconnect"))) {
                 pm.RemovePlayerByGlobalIndex(globalIdx);
                 ImGui::PopID();
                 EndCard();
@@ -300,11 +409,10 @@ inline void RenderDashboard() {
             auto& p = pm.GetProPlayers()[i];
             ImGui::PushID(playerIndex * 100 + 80 + i);
             BeginCard(0, 0);
-            ImGui::SetCursorPos(ImVec2(16, 12));
 
             ImVec2 iconPos = ImGui::GetCursorScreenPos();
             DrawControllerIcon(p.type, iconPos, 1.2f, ImGui::GetColorU32(UITheme::Primary));
-            ImGui::Dummy(ImVec2(48, 40));
+            ImGui::Dummy(ImVec2(S(52), S(44)));
             ImGui::SameLine();
 
             ImGui::BeginGroup();
@@ -323,9 +431,9 @@ inline void RenderDashboard() {
             }
             ImGui::EndGroup();
 
-            ImGui::SameLine(ImGui::GetContentRegionAvail().x - 80);
+            ImGui::SameLine(ImGui::GetContentRegionAvail().x - S(80));
             int globalIdx = (int)pm.GetSinglePlayers().size() + (int)pm.GetDualPlayers().size() + i;
-            if (DangerButton(T("dash_disconnect"), ImVec2(80, 32))) {
+            if (DangerButton(T("dash_disconnect"))) {
                 pm.RemovePlayerByGlobalIndex(globalIdx);
                 ImGui::PopID();
                 EndCard();
@@ -346,10 +454,10 @@ inline void RenderDashboard() {
 // PAGE: Add Device
 // =============================================================
 inline void RenderAddDevice(int& activePage) {
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(24, 24));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(S(24), S(24)));
     ImGui::BeginChild("AddDeviceContent", ImVec2(0, 0), ImGuiChildFlags_None);
     ImGui::PopStyleVar();
-    ImGui::SetCursorPos(ImVec2(24, 16));
+    ImGui::SetCursorPos(ImVec2(S(24), S(16)));
 
     // Step indicators
     ImGui::TextColored(UITheme::TextTertiary, "%s %d / %s",
@@ -384,16 +492,17 @@ inline void RenderAddDevice(int& activePage) {
             ImGui::PushStyleColor(ImGuiCol_ChildBg, bgCol);
             ImGui::PushStyleColor(ImGuiCol_Border, borderCol);
             ImGui::PushStyleVar(ImGuiStyleVar_ChildBorderSize, selected ? 2.0f : 1.0f);
-            ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 12.0f);
+            ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, S(12));
 
-            ImGui::BeginChild("typecard", ImVec2(ImGui::GetContentRegionAvail().x, 64), ImGuiChildFlags_Borders);
+            ImGui::BeginChild("typecard", ImVec2(ImGui::GetContentRegionAvail().x, S(70)), ImGuiChildFlags_Borders);
 
-            ImGui::SetCursorPos(ImVec2(16, 12));
+            ImGui::SetCursorPos(ImVec2(S(16), S(12)));
             ImVec2 iconPos = ImGui::GetCursorScreenPos();
             DrawControllerIcon(opt.type, iconPos, 1.0f, ImGui::GetColorU32(selected ? UITheme::Primary : UITheme::TextSecondary));
-            ImGui::Dummy(ImVec2(48, 36));
+            ImGui::Dummy(ImVec2(S(52), S(44)));
             ImGui::SameLine();
-            ImGui::SetCursorPosY(20);
+            float textH = ImGui::GetTextLineHeight();
+            ImGui::SetCursorPosY((S(70) - textH) * 0.5f);
             ImGui::Text("%s", T(opt.nameKey));
 
             // Click detection
@@ -409,7 +518,7 @@ inline void RenderAddDevice(int& activePage) {
         }
 
         ImGui::Spacing();
-        if (PrimaryButton(T("add_next"), ImVec2(120, 40))) {
+        if (PrimaryButton(T("add_next"))) {
             // Pro and NSO GC skip step 2 config
             if (g_wizard.selectedType == ControllerType::ProController ||
                 g_wizard.selectedType == ControllerType::NSOGCController) {
@@ -457,9 +566,9 @@ inline void RenderAddDevice(int& activePage) {
         }
 
         ImGui::Spacing(); ImGui::Spacing();
-        if (SecondaryButton(T("add_back"), ImVec2(100, 40))) g_wizard.step = 0;
+        if (SecondaryButton(T("add_back"))) g_wizard.step = 0;
         ImGui::SameLine();
-        if (PrimaryButton(T("add_next"), ImVec2(100, 40))) g_wizard.step = 2;
+        if (PrimaryButton(T("add_next"))) g_wizard.step = 2;
 
     } else if (g_wizard.step == 2) {
         // Step 3: Scanning
@@ -474,7 +583,7 @@ inline void RenderAddDevice(int& activePage) {
         if (!g_wizard.scanStarted) {
             ImGui::TextColored(UITheme::TextSecondary, "%s", T("add_scanning_hint"));
             ImGui::Spacing();
-            if (PrimaryButton(T("add_start_scan"), ImVec2(160, 44))) {
+            if (PrimaryButton(T("add_start_scan"))) {
                 g_wizard.scanStarted = true;
                 g_wizard.statusMessage.clear();
 
@@ -511,7 +620,7 @@ inline void RenderAddDevice(int& activePage) {
                 });
             }
             ImGui::SameLine();
-            if (SecondaryButton(T("add_back"), ImVec2(100, 44))) {
+            if (SecondaryButton(T("add_back"))) {
                 if (g_wizard.selectedType == ControllerType::ProController ||
                     g_wizard.selectedType == ControllerType::NSOGCController)
                     g_wizard.step = 0;
@@ -527,7 +636,7 @@ inline void RenderAddDevice(int& activePage) {
                 ImGui::TextColored(UITheme::TextSecondary, "%s", T("add_scanning_hint"));
 
                 ImGui::Spacing();
-                if (SecondaryButton(T("add_cancel"), ImVec2(100, 40))) {
+                if (SecondaryButton(T("add_cancel"))) {
                     DeviceManager::Instance().StopScan();
                     g_wizard.Reset();
                 }
@@ -535,18 +644,18 @@ inline void RenderAddDevice(int& activePage) {
                 // Success
                 ImGui::TextColored(UITheme::Success, "%s", T("add_connected"));
                 ImGui::Spacing();
-                if (PrimaryButton("OK", ImVec2(80, 36))) {
+                if (PrimaryButton("OK")) {
                     g_wizard.Reset();
                     activePage = 0; // go to dashboard
                 }
             } else if (g_wizard.statusMessage == "TIMEOUT") {
                 ImGui::TextColored(UITheme::Error, "%s", T("add_timeout"));
                 ImGui::Spacing();
-                if (SecondaryButton(T("add_back"), ImVec2(100, 40))) g_wizard.scanStarted = false;
+                if (SecondaryButton(T("add_back"))) g_wizard.scanStarted = false;
             } else {
                 ImGui::TextColored(UITheme::Error, "Error connecting.");
                 ImGui::Spacing();
-                if (SecondaryButton(T("add_back"), ImVec2(100, 40))) g_wizard.scanStarted = false;
+                if (SecondaryButton(T("add_back"))) g_wizard.scanStarted = false;
             }
         }
 
@@ -558,7 +667,7 @@ inline void RenderAddDevice(int& activePage) {
         if (!g_wizard.scanStarted) {
             ImGui::TextColored(UITheme::TextSecondary, "%s", T("add_scanning_hint"));
             ImGui::Spacing();
-            if (PrimaryButton(T("add_start_scan"), ImVec2(160, 44))) {
+            if (PrimaryButton(T("add_start_scan"))) {
                 g_wizard.scanStarted = true;
                 g_wizard.statusMessage.clear();
 
@@ -577,21 +686,21 @@ inline void RenderAddDevice(int& activePage) {
                 ImGui::SameLine();
                 ImGui::TextColored(UITheme::TextSecondary, "%s", T("add_scanning_hint"));
                 ImGui::Spacing();
-                if (SecondaryButton(T("add_cancel"), ImVec2(100, 40))) {
+                if (SecondaryButton(T("add_cancel"))) {
                     DeviceManager::Instance().StopScan();
                     g_wizard.Reset();
                 }
             } else if (g_wizard.statusMessage == "OK") {
                 ImGui::TextColored(UITheme::Success, "%s", T("add_connected"));
                 ImGui::Spacing();
-                if (PrimaryButton("OK", ImVec2(80, 36))) {
+                if (PrimaryButton("OK")) {
                     g_wizard.Reset();
                     activePage = 0;
                 }
             } else {
                 ImGui::TextColored(UITheme::Error, "%s", T("add_timeout"));
                 ImGui::Spacing();
-                if (SecondaryButton(T("add_back"), ImVec2(100, 40))) g_wizard.scanStarted = false;
+                if (SecondaryButton(T("add_back"))) g_wizard.scanStarted = false;
             }
         }
     }
@@ -603,20 +712,25 @@ inline void RenderAddDevice(int& activePage) {
 // PAGE: Layout Manager
 // =============================================================
 inline void RenderLayoutManager() {
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(24, 24));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(S(24), S(24)));
     ImGui::BeginChild("LayoutContent", ImVec2(0, 0), ImGuiChildFlags_None);
     ImGui::PopStyleVar();
-    ImGui::SetCursorPos(ImVec2(24, 16));
+    ImGui::SetCursorPos(ImVec2(S(24), S(16)));
 
     SectionLabel(T("layout_title"));
 
     auto& config = ConfigManager::Instance().config.proConfig;
     float totalW = ImGui::GetContentRegionAvail().x;
     float leftW = totalW * 0.35f;
+    float availH = ImGui::GetContentRegionAvail().y;
 
-    // Left panel: layout list
-    ImGui::BeginChild("LayoutList", ImVec2(leftW, ImGui::GetContentRegionAvail().y - 60), ImGuiChildFlags_None);
-    
+    // === Left column (layout list + buttons) ===
+    ImGui::BeginChild("LeftPanel", ImVec2(leftW, availH), ImGuiChildFlags_None);
+
+    // Layout list (scrollable)
+    float btnRowH = S(56);
+    ImGui::BeginChild("LayoutList", ImVec2(-1, ImGui::GetContentRegionAvail().y - btnRowH), ImGuiChildFlags_None);
+
     for (int i = 0; i < (int)config.layouts.size(); ++i) {
         ImGui::PushID(i);
         bool isActive = (i == config.activeLayoutIndex);
@@ -628,13 +742,13 @@ inline void RenderLayoutManager() {
         ImGui::PushStyleColor(ImGuiCol_ChildBg, bg);
         ImGui::PushStyleColor(ImGuiCol_Border, border);
         ImGui::PushStyleVar(ImGuiStyleVar_ChildBorderSize, isActive ? 2.0f : 1.0f);
-        ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 8.0f);
+        ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, S(8));
 
-        ImGui::BeginChild("layoutitem", ImVec2(leftW - 8, 50), ImGuiChildFlags_Borders);
-        ImGui::SetCursorPos(ImVec2(12, 8));
+        ImGui::BeginChild("layoutitem", ImVec2(-1, S(50)), ImGuiChildFlags_Borders);
+        ImGui::SetCursorPos(ImVec2(S(12), S(8)));
 
         if (g_renamingLayout && isSelected) {
-            ImGui::SetNextItemWidth(leftW - 40);
+            ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - S(16));
             if (ImGui::InputText("##rename", g_layoutNameBuf, sizeof(g_layoutNameBuf),
                 ImGuiInputTextFlags_EnterReturnsTrue)) {
                 config.layouts[i].name = g_layoutNameBuf;
@@ -661,11 +775,11 @@ inline void RenderLayoutManager() {
         ImGui::Spacing();
     }
 
-    ImGui::EndChild();
+    ImGui::EndChild(); // LayoutList
 
-    // Layout list buttons
-    ImGui::SetCursorPosX(24);
-    if (PrimaryButton(T("layout_add"), ImVec2(0, 36))) {
+    // Buttons row (fixed at bottom of left panel)
+    ImGui::Spacing();
+    if (PrimaryButton(T("layout_add"))) {
         GLGRLayout newLayout;
         newLayout.name = "Layout " + std::to_string(config.layouts.size() + 1);
         config.layouts.push_back(newLayout);
@@ -673,12 +787,12 @@ inline void RenderLayoutManager() {
         ConfigManager::Instance().Save();
     }
     ImGui::SameLine();
-    if (SecondaryButton(T("layout_rename"), ImVec2(0, 36)) && g_selectedLayoutIndex < (int)config.layouts.size()) {
+    if (SecondaryButton(T("layout_rename")) && g_selectedLayoutIndex < (int)config.layouts.size()) {
         g_renamingLayout = true;
         strncpy_s(g_layoutNameBuf, config.layouts[g_selectedLayoutIndex].name.c_str(), sizeof(g_layoutNameBuf) - 1);
     }
     ImGui::SameLine();
-    if (DangerButton(T("layout_delete"), ImVec2(0, 36)) && config.layouts.size() > 1) {
+    if (DangerButton(T("layout_delete")) && config.layouts.size() > 1) {
         config.layouts.erase(config.layouts.begin() + g_selectedLayoutIndex);
         if (config.activeLayoutIndex >= (int)config.layouts.size())
             config.activeLayoutIndex = (int)config.layouts.size() - 1;
@@ -687,9 +801,11 @@ inline void RenderLayoutManager() {
         ConfigManager::Instance().Save();
     }
 
-    // Right panel: layout details
-    ImGui::SameLine(leftW + 32);
-    ImGui::BeginGroup();
+    ImGui::EndChild(); // LeftPanel
+
+    // === Right column (mapping details) - always visible ===
+    ImGui::SameLine(0, S(24));
+    ImGui::BeginChild("RightPanel", ImVec2(0, availH), ImGuiChildFlags_None);
 
     if (g_selectedLayoutIndex < (int)config.layouts.size()) {
         auto& layout = config.layouts[g_selectedLayoutIndex];
@@ -698,19 +814,19 @@ inline void RenderLayoutManager() {
 
         // GL dropdown
         ImGui::Text("%s", T("layout_gl"));
+        ImGui::SetNextItemWidth(S(220));
         int glIdx = static_cast<int>(layout.glMapping);
-        ImGui::SetNextItemWidth(200);
         if (ImGui::Combo("##gl", &glIdx, ButtonMappingNames, ButtonMappingCount)) {
             layout.glMapping = static_cast<ButtonMapping>(glIdx);
             ConfigManager::Instance().Save();
         }
 
-        ImGui::Spacing();
+        ImGui::Spacing(); ImGui::Spacing();
 
         // GR dropdown
         ImGui::Text("%s", T("layout_gr"));
+        ImGui::SetNextItemWidth(S(220));
         int grIdx = static_cast<int>(layout.grMapping);
-        ImGui::SetNextItemWidth(200);
         if (ImGui::Combo("##gr", &grIdx, ButtonMappingNames, ButtonMappingCount)) {
             layout.grMapping = static_cast<ButtonMapping>(grIdx);
             ConfigManager::Instance().Save();
@@ -721,7 +837,7 @@ inline void RenderLayoutManager() {
         // Set Active
         bool isActive = (g_selectedLayoutIndex == config.activeLayoutIndex);
         if (!isActive) {
-            if (PrimaryButton(T("layout_set_active"), ImVec2(160, 40))) {
+            if (PrimaryButton(T("layout_set_active"))) {
                 config.activeLayoutIndex = g_selectedLayoutIndex;
                 ConfigManager::Instance().Save();
             }
@@ -733,19 +849,19 @@ inline void RenderLayoutManager() {
     ImGui::Spacing(); ImGui::Spacing();
     ImGui::TextColored(UITheme::TextTertiary, "%s", T("layout_hint"));
 
-    ImGui::EndGroup();
+    ImGui::EndChild(); // RightPanel
 
-    ImGui::EndChild();
+    ImGui::EndChild(); // LayoutContent
 }
 
 // =============================================================
 // PAGE: Mouse Settings
 // =============================================================
 inline void RenderMouseSettings() {
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(24, 24));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(S(24), S(24)));
     ImGui::BeginChild("MouseContent", ImVec2(0, 0), ImGuiChildFlags_None);
     ImGui::PopStyleVar();
-    ImGui::SetCursorPos(ImVec2(24, 16));
+    ImGui::SetCursorPos(ImVec2(S(24), S(16)));
 
     SectionLabel(T("mouse_title"));
 
@@ -755,58 +871,53 @@ inline void RenderMouseSettings() {
     auto& mouseConfig = ConfigManager::Instance().config.mouseConfig;
     bool changed = false;
 
-    // Enable toggle
+    // Enable toggle card — using built-in card padding (no SetCursorPos hack)
     BeginCard();
-    ImGui::SetCursorPos(ImVec2(16, 12));
     if (ImGui::Checkbox(T("mouse_enable"), &mouseConfig.chatKeyEnabled))
         changed = true;
     EndCard();
 
     ImGui::Spacing(); ImGui::Spacing();
 
-    // Sensitivity sliders
+    // Sensitivity sliders card
+    float sliderW = (std::max)(ImGui::GetContentRegionAvail().x - S(100), S(120));
     BeginCard();
-    ImGui::SetCursorPos(ImVec2(16, 12));
-    ImGui::BeginGroup();
 
     ImGui::Text("%s", T("mouse_fast"));
-    ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - 100);
+    ImGui::SetNextItemWidth(sliderW);
     if (ImGui::SliderFloat("##fast", &mouseConfig.fastSensitivity, 0.1f, 3.0f, "%.2f"))
         changed = true;
 
     ImGui::Spacing();
 
     ImGui::Text("%s", T("mouse_normal"));
-    ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - 100);
+    ImGui::SetNextItemWidth(sliderW);
     if (ImGui::SliderFloat("##normal", &mouseConfig.normalSensitivity, 0.1f, 2.0f, "%.2f"))
         changed = true;
 
     ImGui::Spacing();
 
     ImGui::Text("%s", T("mouse_slow"));
-    ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - 100);
+    ImGui::SetNextItemWidth(sliderW);
     if (ImGui::SliderFloat("##slow", &mouseConfig.slowSensitivity, 0.05f, 1.0f, "%.2f"))
         changed = true;
 
     ImGui::Spacing(); ImGui::Spacing();
 
     ImGui::Text("%s", T("mouse_scroll_speed"));
-    ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - 100);
+    ImGui::SetNextItemWidth(sliderW);
     if (ImGui::SliderFloat("##scroll", &mouseConfig.scrollSpeed, 5.0f, 120.0f, "%.0f"))
         changed = true;
 
-    ImGui::EndGroup();
     EndCard();
 
     ImGui::Spacing(); ImGui::Spacing();
 
-    // Current mode indicator
+    // Current mode indicator card
     BeginCard();
-    ImGui::SetCursorPos(ImVec2(16, 12));
     ImGui::Text("%s: ", T("mouse_current_mode"));
     ImGui::SameLine();
 
-    // Find current mouse mode from any single right joy-con player
     int currentMode = 0;
     for (auto& sp : PlayerManager::Instance().GetSinglePlayers()) {
         if (sp.side == JoyConSide::Right) {
