@@ -115,13 +115,17 @@ Install the following via the **Visual Studio Installer**:
 
 ## Troubleshooting
 
+**Connection Error / Unable to Connect:**
+Please make sure the controller is powered off. After starting the scan, press and hold the pairing button to power it on. Once the connection is successful, release the pairing button.
+
 **Controller stops connecting after multiple attempts:**
 This is a known controller-level cooldown behavior — not an OS or Bluetooth stack issue. Simply wait a few minutes and try again.
 
 **ViGEm not detected:**
 Make sure the ViGEmBus driver is installed *before* launching the app. The status indicator on the Dashboard will show green when it's connected.
 
-**Bit layouts differ between Left and Right Joy-Cons**, so always select the correct side during setup.
+**Bit layouts differ between Left and Right Joy-Cons:**
+Always select the correct side during setup.
 
 ---
 
