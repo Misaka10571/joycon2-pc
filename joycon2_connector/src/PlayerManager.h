@@ -195,7 +195,7 @@ struct ProControllerPlayer {
     std::unique_ptr<VibrationContext> vibCtx;
 };
 
-// Button mapping application (from original testapp.cpp)
+// Button mapping application
 inline void ApplyButtonMapping(DS4_REPORT_EX& report, ButtonMapping mapping) {
     auto& r = report.Report;
     switch (mapping) {

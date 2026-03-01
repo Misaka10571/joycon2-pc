@@ -412,6 +412,8 @@ void RenderSidebar() {
     ImGui::PushStyleColor(ImGuiCol_Text, UITheme::TextPrimary);
     if (ImGui::Button(g_currentLang == Lang::EN ? "English" : u8"\u4E2D\u6587", ImVec2(S(80), S(32)))) {
         g_currentLang = (g_currentLang == Lang::EN) ? Lang::ZH : Lang::EN;
+        ConfigManager::Instance().config.language = (g_currentLang == Lang::EN) ? "en" : "zh";
+        ConfigManager::Instance().Save();
     }
     ImGui::PopStyleColor(3);
 
@@ -601,6 +603,21 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
     ViGEmManager::Instance().Initialize();
     ConfigManager::Instance().Load();
     ConfigManager::Instance().EnsureDefaults();
+
+    // Initialize language from config, or detect from system
+    {
+        auto& lang = ConfigManager::Instance().config.language;
+        if (lang == "en") {
+            g_currentLang = Lang::EN;
+        } else if (lang == "zh") {
+            g_currentLang = Lang::ZH;
+        } else {
+            // First launch or legacy config: detect system language
+            g_currentLang = DetectSystemLanguage();
+            lang = (g_currentLang == Lang::EN) ? "en" : "zh";
+            ConfigManager::Instance().Save();
+        }
+    }
 
     // Clear color
     float clearColor[4] = { 0.96f, 0.94f, 0.92f, 1.0f };

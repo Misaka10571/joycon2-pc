@@ -1097,18 +1097,6 @@ int main()
                             // --- 3. Stick Scrolling & Side Buttons ---
                             auto stickData = DecodeJoystick(buffer, joyconSide, joyconOrientation);
                             
-                            // Scroll (Vertical Stick)
-                            // stickData.y is normalized int16 (-32767 to 32767).
-                            // Up is typically negative Y in raw data?, DecodeJoystick returns standard cartesian?
-                            // Let's check testapp logic: outY = -y * 32767. If y was (y_raw - 2048), then raw 4095 (down) -> +y -> outY negative.
-                            // So DecodeJoystick: Up (+y_raw?) -> outY Positive?
-                            // Let's assume standard behavior: Up is Positive Y, Down is Negative Y in stickData (based on math).
-                            // Windows Wheel: +Delta is Up, -Delta is Down.
-                            
-                            // Let's try: Stick Up -> Scroll Up.
-                            // If stickData.y > deadzone -> Scroll Up.
-                            // Speed proportional to magnitude.
-                            
                             const int SCROLL_DEADZONE = 4000;
                             if (abs(stickData.y) > SCROLL_DEADZONE) {
                                 // Accumulate scroll

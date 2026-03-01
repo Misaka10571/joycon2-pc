@@ -1,10 +1,21 @@
 #pragma once
 #include <string>
 #include <unordered_map>
+#include <Windows.h>
 
 enum class Lang { EN, ZH };
 
 inline Lang g_currentLang = Lang::ZH;
+
+// Detect system UI language: returns ZH for Chinese, EN for everything else
+inline Lang DetectSystemLanguage() {
+    LANGID langId = GetUserDefaultUILanguage();
+    WORD primaryLang = PRIMARYLANGID(langId);
+    if (primaryLang == LANG_CHINESE) {
+        return Lang::ZH;
+    }
+    return Lang::EN;
+}
 
 inline const char* T(const char* key) {
     static const std::unordered_map<std::string, std::unordered_map<std::string, std::string>> table = {

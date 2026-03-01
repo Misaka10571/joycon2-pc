@@ -46,6 +46,7 @@ struct AppConfig {
     ProControllerConfig proConfig;
     MouseConfig mouseConfig;
     VibrationConfig vibrationConfig;
+    std::string language;  // "en", "zh", or "" (auto-detect)
 };
 
 // Button mapping string conversion helpers
@@ -121,7 +122,8 @@ inline std::string ConfigToJSON(const AppConfig& config) {
     oss << "  \"vibration\": {\n";
     oss << "    \"enabled\": " << (config.vibrationConfig.enabled ? "true" : "false") << ",\n";
     oss << "    \"intensity\": " << config.vibrationConfig.intensity << "\n";
-    oss << "  }\n";
+    oss << "  },\n";
+    oss << "  \"language\": \"" << config.language << "\"\n";
     oss << "}";
     return oss.str();
 }
@@ -220,6 +222,9 @@ inline bool JSONToConfig(const std::string& json, AppConfig& config) {
             config.vibrationConfig.intensity = (float)ExtractJsonNumber(vibStr, "intensity", 1.0);
         }
     }
+
+    // Parse language
+    config.language = ExtractJsonString(json, "language");
 
     return true;
 }
