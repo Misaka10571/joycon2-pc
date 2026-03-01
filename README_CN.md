@@ -6,7 +6,7 @@
 
 > [joycon2cpp](https://github.com/original/joycon2cpp) 的  Fork 版本 —— 重写了完整的 GUI 界面，优化光学鼠标支持，让 Switch 2 手柄在  PC 上直接可用。
 > 
-> ![Dashboard](https://s41.ax1x.com/2026/03/01/peSTWx1.png)
+> ![Dashboard](https://s41.ax1x.com/2026/03/01/peSqb0P.png)
 
 ---
 
@@ -25,11 +25,11 @@
 
 | 仪表盘                                                 | 添加设备                                                 |
 | --------------------------------------------------------- | ---------------------------------------------------------- |
-| ![Dashboard](https://s41.ax1x.com/2026/03/01/peSTWx1.png) | ![Add Device](https://s41.ax1x.com/2026/03/01/peSThKx.png) |
+| ![Dashboard](https://s41.ax1x.com/2026/03/01/peSqb0P.png) | ![Add Device](https://s41.ax1x.com/2026/03/01/peSqIld.png) |
 
 | 背键映射                                           | 鼠标设置                                               |
 | ------------------------------------------------------------ | ------------------------------------------------------------ |
-| ![Back Button Layout](https://s41.ax1x.com/2026/03/01/peSToVO.png) | ![Mouse Settings](https://s41.ax1x.com/2026/03/01/peSTLRA.png) |
+| ![Back Button Layout](https://s41.ax1x.com/2026/03/01/peSq5SH.png) | ![Mouse Settings](https://s41.ax1x.com/2026/03/01/peSqqTf.png) |
 
 ---
 

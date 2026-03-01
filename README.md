@@ -6,7 +6,7 @@
 
 > A fork of [joycon2cpp](https://github.com/original/joycon2cpp) — with a fully rewritten GUI, improved optical mouse support, and seamless Switch 2 controller support on PC.
 
-![Dashboard](https://s41.ax1x.com/2026/03/01/peSTU8s.png)
+![Dashboard](https://s41.ax1x.com/2026/03/01/peSqo6A.png)
 
 ---
 
@@ -30,11 +30,11 @@
 
 | Dashboard                                                 | Add Device                                                 |
 | --------------------------------------------------------- | ---------------------------------------------------------- |
-| ![Dashboard](https://s41.ax1x.com/2026/03/01/peSTU8s.png) | ![Add Device](https://s41.ax1x.com/2026/03/01/peST0K0.png) |
+| ![Dashboard](https://s41.ax1x.com/2026/03/01/peSqo6A.png) | ![Add Device](https://s41.ax1x.com/2026/03/01/peSqhfe.png) |
 
 | Back Button Layout                                           | Mouse Settings                                               |
 | ------------------------------------------------------------ | ------------------------------------------------------------ |
-| ![Back Button Layout](https://s41.ax1x.com/2026/03/01/peSTdvq.png) | ![Mouse Settings](https://s41.ax1x.com/2026/03/01/peSTa2n.png) |
+| ![Back Button Layout](https://s41.ax1x.com/2026/03/01/peSqTOI.png) | ![Mouse Settings](https://s41.ax1x.com/2026/03/01/peSqHmt.png) |
 
 ---
 
