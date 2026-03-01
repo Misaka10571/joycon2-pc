@@ -524,6 +524,12 @@ public:
         return (status == GattCommunicationStatus::Success);
     }
 
+    // Clear pending dual JoyCon state (release BLE references)
+    void ClearPendingDual() {
+        pendingDualRight = ConnectedJoyCon{};
+        pendingDualGyro = GyroSource::Both;
+    }
+
     // Add Dual JoyCon player (needs two separate scans)
     bool AddDualJoyConFirstStep(ConnectedJoyCon rightJoyCon, GyroSource gyroSource) {
         pendingDualRight = rightJoyCon;
@@ -608,6 +614,7 @@ public:
         });
 
         dualPlayers.push_back(std::move(dp));
+        ClearPendingDual();  // Release extra BLE references so disconnect works for right Joy-Con
         return true;
     }
 

@@ -30,6 +30,7 @@ struct AddDeviceWizard {
     void Reset() {
         step = 0; scanStarted = false; scanTimer = 0.0f;
         statusMessage.clear(); dualFirstDone = false;
+        PlayerManager::Instance().ClearPendingDual();  // Release pending right Joy-Con BLE reference
     }
 };
 
