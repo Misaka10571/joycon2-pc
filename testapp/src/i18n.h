@@ -83,6 +83,10 @@ inline const char* T(const char* key) {
         {"mouse_mode_slow",     {{"en", "SLOW"},                     {"zh", u8"慢速"}}},
         {"mouse_hint",          {{"en", "Only available for Right Joy-Con (Joy-Con 2)"},
                                                                      {"zh", u8"仅适用于右 Joy-Con (Joy-Con 2)"}}},
+        {"mouse_interpolation",  {{"en", "Smooth Cursor (Interpolation)"},
+                                                                     {"zh", u8"光标平滑（插值）"}}},
+        {"mouse_interp_rate",    {{"en", "Interpolation Rate (Hz)"},
+                                                                     {"zh", u8"插值频率 (Hz)"}}},
     };
 
     std::string langKey = (g_currentLang == Lang::EN) ? "en" : "zh";

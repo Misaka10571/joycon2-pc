@@ -33,6 +33,8 @@ struct MouseConfig {
     float normalSensitivity = 0.6f;
     float slowSensitivity = 0.3f;
     float scrollSpeed = 40.0f;
+    bool interpolationEnabled = true;
+    int interpolationRateHz = 500;
 };
 
 struct AppConfig {
@@ -106,7 +108,9 @@ inline std::string ConfigToJSON(const AppConfig& config) {
     oss << "    \"fastSensitivity\": " << config.mouseConfig.fastSensitivity << ",\n";
     oss << "    \"normalSensitivity\": " << config.mouseConfig.normalSensitivity << ",\n";
     oss << "    \"slowSensitivity\": " << config.mouseConfig.slowSensitivity << ",\n";
-    oss << "    \"scrollSpeed\": " << config.mouseConfig.scrollSpeed << "\n";
+    oss << "    \"scrollSpeed\": " << config.mouseConfig.scrollSpeed << ",\n";
+    oss << "    \"interpolationEnabled\": " << (config.mouseConfig.interpolationEnabled ? "true" : "false") << ",\n";
+    oss << "    \"interpolationRateHz\": " << config.mouseConfig.interpolationRateHz << "\n";
     oss << "  }\n";
     oss << "}";
     return oss.str();
@@ -190,6 +194,8 @@ inline bool JSONToConfig(const std::string& json, AppConfig& config) {
             config.mouseConfig.normalSensitivity = (float)ExtractJsonNumber(mouseStr, "normalSensitivity", 0.6);
             config.mouseConfig.slowSensitivity = (float)ExtractJsonNumber(mouseStr, "slowSensitivity", 0.3);
             config.mouseConfig.scrollSpeed = (float)ExtractJsonNumber(mouseStr, "scrollSpeed", 40.0);
+            config.mouseConfig.interpolationEnabled = ExtractJsonBool(mouseStr, "interpolationEnabled", true);
+            config.mouseConfig.interpolationRateHz = static_cast<int>(ExtractJsonNumber(mouseStr, "interpolationRateHz", 500));
         }
     }
 

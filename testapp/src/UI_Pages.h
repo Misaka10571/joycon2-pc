@@ -909,6 +909,19 @@ inline void RenderMouseSettings() {
     if (ImGui::SliderFloat("##scroll", &mouseConfig.scrollSpeed, 5.0f, 120.0f, "%.0f"))
         changed = true;
 
+    ImGui::Spacing(); ImGui::Spacing();
+
+    ImGui::Text("%s", T("mouse_interpolation"));
+    if (ImGui::Checkbox("##interp", &mouseConfig.interpolationEnabled))
+        changed = true;
+
+    if (mouseConfig.interpolationEnabled) {
+        ImGui::Text("%s", T("mouse_interp_rate"));
+        ImGui::SetNextItemWidth(sliderW);
+        if (ImGui::SliderInt("##interpRate", &mouseConfig.interpolationRateHz, 125, 1000, "%d Hz"))
+            changed = true;
+    }
+
     EndCard();
 
     ImGui::Spacing(); ImGui::Spacing();

@@ -45,9 +45,56 @@ struct SingleJoyConPlayer {
     bool leftBtnPressed = false;
     bool rightBtnPressed = false;
     bool middleBtnPressed = false;
-    // Sub-pixel accumulation for smooth mouse movement
+    // Sub-pixel accumulation for smooth mouse movement (direct mode fallback)
     float accumX = 0.0f;
     float accumY = 0.0f;
+    // Interpolation state for high-frequency mouse output
+    std::atomic<float> pendingDX{ 0.0f };
+    std::atomic<float> pendingDY{ 0.0f };
+    std::atomic<bool> newReportReady{ false };
+    std::atomic<bool> mouseInterpolActive{ false };
+    std::chrono::steady_clock::time_point lastBLETimestamp{};
+    std::atomic<float> reportIntervalMs{ 15.0f };
+    bool bleTimestampInitialized = false;
+
+    // Move constructor & assignment (std::atomic is non-copyable)
+    SingleJoyConPlayer() = default;
+    SingleJoyConPlayer(ConnectedJoyCon cj_, PVIGEM_TARGET ds4_, JoyConSide side_, JoyConOrientation orient_)
+        : joycon(std::move(cj_)), ds4Controller(ds4_), side(side_), orientation(orient_) {}
+    SingleJoyConPlayer(SingleJoyConPlayer&& o) noexcept
+        : joycon(std::move(o.joycon)), ds4Controller(o.ds4Controller),
+          side(o.side), orientation(o.orientation),
+          mouseMode(o.mouseMode), wasChatPressed(o.wasChatPressed),
+          lastOpticalX(o.lastOpticalX), lastOpticalY(o.lastOpticalY),
+          firstOpticalRead(o.firstOpticalRead), scrollAccumulator(o.scrollAccumulator),
+          mb4Pressed(o.mb4Pressed), mb5Pressed(o.mb5Pressed),
+          leftBtnPressed(o.leftBtnPressed), rightBtnPressed(o.rightBtnPressed),
+          middleBtnPressed(o.middleBtnPressed), accumX(o.accumX), accumY(o.accumY),
+          pendingDX(o.pendingDX.load()), pendingDY(o.pendingDY.load()),
+          newReportReady(o.newReportReady.load()), mouseInterpolActive(o.mouseInterpolActive.load()),
+          lastBLETimestamp(o.lastBLETimestamp),
+          reportIntervalMs(o.reportIntervalMs.load()),
+          bleTimestampInitialized(o.bleTimestampInitialized) {}
+    SingleJoyConPlayer& operator=(SingleJoyConPlayer&& o) noexcept {
+        if (this != &o) {
+            joycon = std::move(o.joycon); ds4Controller = o.ds4Controller;
+            side = o.side; orientation = o.orientation;
+            mouseMode = o.mouseMode; wasChatPressed = o.wasChatPressed;
+            lastOpticalX = o.lastOpticalX; lastOpticalY = o.lastOpticalY;
+            firstOpticalRead = o.firstOpticalRead; scrollAccumulator = o.scrollAccumulator;
+            mb4Pressed = o.mb4Pressed; mb5Pressed = o.mb5Pressed;
+            leftBtnPressed = o.leftBtnPressed; rightBtnPressed = o.rightBtnPressed;
+            middleBtnPressed = o.middleBtnPressed; accumX = o.accumX; accumY = o.accumY;
+            pendingDX.store(o.pendingDX.load()); pendingDY.store(o.pendingDY.load());
+            newReportReady.store(o.newReportReady.load()); mouseInterpolActive.store(o.mouseInterpolActive.load());
+            lastBLETimestamp = o.lastBLETimestamp;
+            reportIntervalMs.store(o.reportIntervalMs.load());
+            bleTimestampInitialized = o.bleTimestampInitialized;
+        }
+        return *this;
+    }
+    SingleJoyConPlayer(const SingleJoyConPlayer&) = delete;
+    SingleJoyConPlayer& operator=(const SingleJoyConPlayer&) = delete;
 };
 
 struct DualJoyConPlayer {
@@ -187,7 +234,7 @@ public:
         PVIGEM_TARGET ds4 = vigem.AllocDS4();
         if (!ds4 || !vigem.AddTarget(ds4)) return false;
 
-        singlePlayers.push_back({ cj, ds4, side, orientation });
+        singlePlayers.push_back(SingleJoyConPlayer(cj, ds4, side, orientation));
         auto& player = singlePlayers.back();
         auto& mouseConfig = ConfigManager::Instance().config.mouseConfig;
 
@@ -199,7 +246,7 @@ public:
             // Boost BLE callback thread priority once for lower input latency
             thread_local bool prioritySet = false;
             if (!prioritySet) {
-                SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_ABOVE_NORMAL);
+                SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_HIGHEST);
                 prioritySet = true;
             }
             auto reader = DataReader::FromBuffer(args.CharacteristicValue());
@@ -223,7 +270,9 @@ public:
                 playerPtr->wasChatPressed = chatPressed;
 
                 if (playerPtr->mouseMode > 0) {
-                    // Optical mouse movement with sub-pixel accumulation
+                    playerPtr->mouseInterpolActive.store(true, std::memory_order_relaxed);
+
+                    // Optical mouse movement
                     auto [rawX, rawY] = GetRawOpticalMouse(buffer);
                     if (playerPtr->firstOpticalRead) {
                         playerPtr->lastOpticalX = rawX;
@@ -240,23 +289,49 @@ public:
                             if (playerPtr->mouseMode == 2) sensitivity = mouseConfig.normalSensitivity;
                             else if (playerPtr->mouseMode == 3) sensitivity = mouseConfig.slowSensitivity;
 
-                            // Accumulate sub-pixel movement for smooth cursor
-                            playerPtr->accumX += dx * sensitivity;
-                            playerPtr->accumY += dy * sensitivity;
+                            float scaledDX = dx * sensitivity;
+                            float scaledDY = dy * sensitivity;
 
-                            int moveX = static_cast<int>(playerPtr->accumX);
-                            int moveY = static_cast<int>(playerPtr->accumY);
+                            if (mouseConfig.interpolationEnabled) {
+                                // Update BLE report interval estimate (exponential moving average)
+                                auto now = std::chrono::steady_clock::now();
+                                if (playerPtr->bleTimestampInitialized) {
+                                    float dtMs = std::chrono::duration<float, std::milli>(now - playerPtr->lastBLETimestamp).count();
+                                    if (dtMs > 1.0f && dtMs < 100.0f) {
+                                        float prev = playerPtr->reportIntervalMs.load(std::memory_order_relaxed);
+                                        playerPtr->reportIntervalMs.store(prev * 0.7f + dtMs * 0.3f, std::memory_order_relaxed);
+                                    }
+                                }
+                                playerPtr->lastBLETimestamp = now;
+                                playerPtr->bleTimestampInitialized = true;
 
-                            if (moveX != 0 || moveY != 0) {
-                                playerPtr->accumX -= moveX;
-                                playerPtr->accumY -= moveY;
+                                // Feed interpolation thread: accumulate pending delta
+                                playerPtr->pendingDX.store(
+                                    playerPtr->pendingDX.load(std::memory_order_relaxed) + scaledDX,
+                                    std::memory_order_relaxed);
+                                playerPtr->pendingDY.store(
+                                    playerPtr->pendingDY.load(std::memory_order_relaxed) + scaledDY,
+                                    std::memory_order_relaxed);
+                                playerPtr->newReportReady.store(true, std::memory_order_release);
+                            } else {
+                                // Direct mode (no interpolation): original behavior
+                                playerPtr->accumX += scaledDX;
+                                playerPtr->accumY += scaledDY;
 
-                                INPUT input = {};
-                                input.type = INPUT_MOUSE;
-                                input.mi.dx = moveX;
-                                input.mi.dy = moveY;
-                                input.mi.dwFlags = MOUSEEVENTF_MOVE | 0x2000; // MOUSEEVENTF_MOVE_NOCOALESCE
-                                SendInput(1, &input, sizeof(INPUT));
+                                int moveX = static_cast<int>(playerPtr->accumX);
+                                int moveY = static_cast<int>(playerPtr->accumY);
+
+                                if (moveX != 0 || moveY != 0) {
+                                    playerPtr->accumX -= moveX;
+                                    playerPtr->accumY -= moveY;
+
+                                    INPUT input = {};
+                                    input.type = INPUT_MOUSE;
+                                    input.mi.dx = moveX;
+                                    input.mi.dy = moveY;
+                                    input.mi.dwFlags = MOUSEEVENTF_MOVE | 0x2000;
+                                    SendInput(1, &input, sizeof(INPUT));
+                                }
                             }
                         }
                     }
@@ -337,9 +412,14 @@ public:
                         buffer[15] = 0x80;
                     }
                 } else {
+                    playerPtr->mouseInterpolActive.store(false, std::memory_order_relaxed);
                     playerPtr->firstOpticalRead = true;
                     playerPtr->accumX = 0.0f;
                     playerPtr->accumY = 0.0f;
+                    playerPtr->pendingDX.store(0.0f, std::memory_order_relaxed);
+                    playerPtr->pendingDY.store(0.0f, std::memory_order_relaxed);
+                    playerPtr->newReportReady.store(false, std::memory_order_relaxed);
+                    playerPtr->bleTimestampInitialized = false;
                 }
             }
 
@@ -356,6 +436,9 @@ public:
             SetPlayerLEDs(player.joycon.writeChar, static_cast<uint8_t>(1 << (GetPlayerCount() - 1)));
             EmitSound(player.joycon.writeChar);
         }
+
+        // Start mouse interpolation thread (shared across all single joycons)
+        StartMouseInterpolThread();
 
         return (status == GattCommunicationStatus::Success);
     }
@@ -513,6 +596,10 @@ public:
     }
 
     void Shutdown() {
+        // Stop mouse interpolation thread
+        mouseInterpolRunning.store(false);
+        if (mouseInterpolThread.joinable()) mouseInterpolThread.join();
+
         for (auto& dp : dualPlayers) {
             dp->running.store(false);
             if (dp->updateThread.joinable()) dp->updateThread.join();
@@ -532,6 +619,127 @@ private:
     std::vector<SingleJoyConPlayer> singlePlayers;
     std::vector<std::unique_ptr<DualJoyConPlayer>> dualPlayers;
     std::vector<ProControllerPlayer> proPlayers;
+
+    // Mouse interpolation thread
+    std::thread mouseInterpolThread;
+    std::atomic<bool> mouseInterpolRunning{ false };
+
+    void StartMouseInterpolThread() {
+        if (mouseInterpolRunning.load()) return; // already running
+        mouseInterpolRunning.store(true);
+        mouseInterpolThread = std::thread([this]() {
+            SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL);
+            auto& mouseConfig = ConfigManager::Instance().config.mouseConfig;
+
+            // Per-player interpolation state (indexed same as singlePlayers)
+            struct InterpState {
+                float remainX = 0.0f, remainY = 0.0f;
+                float accumX = 0.0f, accumY = 0.0f;
+                int ticksLeft = 0;
+                float perTickX = 0.0f, perTickY = 0.0f;
+                std::chrono::steady_clock::time_point lastActivity{};
+            };
+            std::vector<InterpState> states;
+
+            while (mouseInterpolRunning.load(std::memory_order_relaxed)) {
+                int rateHz = mouseConfig.interpolationRateHz;
+                if (rateHz < 125) rateHz = 125;
+                if (rateHz > 1000) rateHz = 1000;
+                float tickMs = 1000.0f / rateHz;
+
+                // Ensure states vector matches player count
+                if (states.size() < singlePlayers.size()) {
+                    states.resize(singlePlayers.size());
+                }
+
+                auto now = std::chrono::steady_clock::now();
+
+                for (size_t i = 0; i < singlePlayers.size(); ++i) {
+                    auto& player = singlePlayers[i];
+                    auto& st = states[i];
+
+                    if (!player.mouseInterpolActive.load(std::memory_order_relaxed))
+                        continue;
+
+                    // Check for new BLE report
+                    if (player.newReportReady.exchange(false, std::memory_order_acquire)) {
+                        float dx = player.pendingDX.exchange(0.0f, std::memory_order_relaxed);
+                        float dy = player.pendingDY.exchange(0.0f, std::memory_order_relaxed);
+
+                        // Add any unfinished remainder from previous report
+                        st.remainX += dx;
+                        st.remainY += dy;
+
+                        // Calculate how many ticks to spread this over
+                        float interval = player.reportIntervalMs.load(std::memory_order_relaxed);
+                        if (interval < 5.0f) interval = 5.0f;
+                        if (interval > 50.0f) interval = 50.0f;
+                        int ticks = (std::max)(1, static_cast<int>(interval / tickMs));
+
+                        st.perTickX = st.remainX / ticks;
+                        st.perTickY = st.remainY / ticks;
+                        st.ticksLeft = ticks;
+                        st.lastActivity = now;
+                    }
+
+                    // Emit one interpolation tick
+                    if (st.ticksLeft > 0) {
+                        st.accumX += st.perTickX;
+                        st.accumY += st.perTickY;
+                        st.remainX -= st.perTickX;
+                        st.remainY -= st.perTickY;
+                        st.ticksLeft--;
+
+                        int moveX = static_cast<int>(st.accumX);
+                        int moveY = static_cast<int>(st.accumY);
+                        if (moveX != 0 || moveY != 0) {
+                            st.accumX -= moveX;
+                            st.accumY -= moveY;
+                            INPUT input = {};
+                            input.type = INPUT_MOUSE;
+                            input.mi.dx = moveX;
+                            input.mi.dy = moveY;
+                            input.mi.dwFlags = MOUSEEVENTF_MOVE | 0x2000;
+                            SendInput(1, &input, sizeof(INPUT));
+                        }
+
+                        // When done distributing, clear any floating point dust
+                        if (st.ticksLeft == 0) {
+                            // Send any final remainder
+                            st.accumX += st.remainX;
+                            st.accumY += st.remainY;
+                            int finalX = static_cast<int>(st.accumX);
+                            int finalY = static_cast<int>(st.accumY);
+                            if (finalX != 0 || finalY != 0) {
+                                st.accumX -= finalX;
+                                st.accumY -= finalY;
+                                INPUT input = {};
+                                input.type = INPUT_MOUSE;
+                                input.mi.dx = finalX;
+                                input.mi.dy = finalY;
+                                input.mi.dwFlags = MOUSEEVENTF_MOVE | 0x2000;
+                                SendInput(1, &input, sizeof(INPUT));
+                            }
+                            st.remainX = 0.0f;
+                            st.remainY = 0.0f;
+                        }
+                    } else {
+                        // Decay any residual accumulation after inactivity (>50ms)
+                        auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - st.lastActivity).count();
+                        if (elapsed > 50) {
+                            st.accumX = 0.0f;
+                            st.accumY = 0.0f;
+                            st.remainX = 0.0f;
+                            st.remainY = 0.0f;
+                        }
+                    }
+                }
+
+                // Sleep for one tick interval
+                std::this_thread::sleep_for(std::chrono::microseconds(static_cast<int>(tickMs * 1000)));
+            }
+        });
+    }
 
     // Pending dual JoyCon state
     ConnectedJoyCon pendingDualRight;
