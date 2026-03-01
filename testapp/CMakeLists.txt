@@ -62,9 +62,6 @@ endif()
 add_custom_command(TARGET joycon2_connector POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:joycon2_connector>/resources"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        "${CMAKE_SOURCE_DIR}/resources/NotoSansSC-Regular.otf"
-        "$<TARGET_FILE_DIR:joycon2_connector>/resources/NotoSansSC-Regular.otf"
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${CMAKE_SOURCE_DIR}/resources/app.manifest"
         "$<TARGET_FILE_DIR:joycon2_connector>/resources/app.manifest"
 )

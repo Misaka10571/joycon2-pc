@@ -43,6 +43,16 @@ static bool  g_fontRebuildNeeded = false;
 static float g_pendingDpiScale = 1.0f;
 static const float TITLE_BAR_HEIGHT_DP = 40.0f; // logical dp
 
+// Helper: build full path to a Windows system font file and check existence
+static std::string GetSystemFontPath(const char* fontFile) {
+    char winDir[MAX_PATH];
+    GetWindowsDirectoryA(winDir, MAX_PATH);
+    std::string path = std::string(winDir) + "\\Fonts\\" + fontFile;
+    FILE* f = fopen(path.c_str(), "rb");
+    if (f) { fclose(f); return path; }
+    return "";
+}
+
 // Forward declarations
 bool CreateDeviceD3D(HWND hWnd);
 void CleanupDeviceD3D();
@@ -72,8 +82,8 @@ static NavItem g_navItems[] = {
 };
 static const int NAV_COUNT = 4;
 
-// Font path relative to exe
-static const char* FONT_PATH = "resources/NotoSansSC-Regular.otf";
+// Windows system font candidates
+static const char* FONT_CJK_CANDIDATES[] = { "msyh.ttc", "msyhbd.ttc", "simsun.ttc", "malgun.ttf" };
 
 bool LoadTextureFromMemory(ID3D11Device* pd3dDevice)
 {
@@ -411,49 +421,91 @@ void RenderSidebar() {
 
 // ---------- Font loading helper ----------
 void LoadFonts(ImGuiIO& io, float dpiScale) {
-    ImFontConfig fontConfig;
-    fontConfig.OversampleH = 2;
-    fontConfig.OversampleV = 1;
-
-    // Build font path relative to exe
-    char exePath[MAX_PATH];
-    GetModuleFileNameA(NULL, exePath, MAX_PATH);
-    std::string exeDir(exePath);
-    exeDir = exeDir.substr(0, exeDir.find_last_of("\\/") + 1);
-    std::string fontPath = exeDir + FONT_PATH;
-
-    const char* fontPaths[] = {
-        fontPath.c_str(),
-        FONT_PATH,
-        "testapp/resources/NotoSansSC-Regular.otf",
-        "../resources/NotoSansSC-Regular.otf",
+    // Glyph ranges covering Latin + CJK + symbols
+    static const ImWchar ranges[] = {
+        0x0020, 0x00FF, // Basic Latin
+        0x2000, 0x206F, // General Punctuation
+        0x3000, 0x30FF, // CJK Symbols, Hiragana, Katakana
+        0x31F0, 0x31FF, // Katakana Extension
+        0x4E00, 0x9FFF, // CJK Unified Ideographs
+        0xFF00, 0xFFEF, // Halfwidth and Fullwidth Forms
+        0x2600, 0x26FF, // Miscellaneous Symbols
+        0x2700, 0x27BF, // Dingbats
+        0xFE00, 0xFE0F, // Variation Selectors
+        0,
+    };
+    // Latin-only subset for Segoe UI base font
+    static const ImWchar latinRanges[] = {
+        0x0020, 0x00FF, // Basic Latin
+        0x2000, 0x206F, // General Punctuation
+        0x2600, 0x26FF, // Miscellaneous Symbols
+        0x2700, 0x27BF, // Dingbats
+        0xFE00, 0xFE0F, // Variation Selectors
+        0,
     };
 
+    const float sizes[] = { 16.0f, 22.0f };
     bool fontLoaded = false;
-    for (const char* fp : fontPaths) {
-        FILE* f = fopen(fp, "rb");
-        if (f) {
-            fclose(f);
-            static const ImWchar ranges[] = {
-                0x0020, 0x00FF, // Basic Latin
-                0x2000, 0x206F, // General Punctuation
-                0x3000, 0x30FF, // CJK Symbols, Hiragana, Katakana
-                0x31F0, 0x31FF, // Katakana Extension
-                0x4E00, 0x9FFF, // CJK Unified Ideographs
-                0xFF00, 0xFFEF, // Halfwidth and Fullwidth Forms
-                0x2600, 0x26FF, // Miscellaneous Symbols
-                0x2700, 0x27BF, // Dingbats
-                0xFE00, 0xFE0F, // Variation Selectors
-                0,
-            };
-            io.Fonts->AddFontFromFileTTF(fp, 16.0f * dpiScale, &fontConfig, ranges);
-            fontConfig.MergeMode = false;
-            io.Fonts->AddFontFromFileTTF(fp, 22.0f * dpiScale, nullptr, ranges);
+
+    // Strategy 1: Microsoft YaHei covers both Latin and CJK in one font
+    std::string msyhPath = GetSystemFontPath("msyh.ttc");
+    if (!msyhPath.empty()) {
+        for (float sz : sizes) {
+            ImFontConfig cfg;
+            cfg.OversampleH = 2;
+            cfg.OversampleV = 1;
+            io.Fonts->AddFontFromFileTTF(msyhPath.c_str(), sz * dpiScale, &cfg, ranges);
+        }
+        fontLoaded = true;
+    }
+
+    // Strategy 2: Segoe UI (Latin) + merge a CJK font
+    if (!fontLoaded) {
+        std::string seguiPath = GetSystemFontPath("segoeui.ttf");
+        std::string cjkPath;
+        for (const char* candidate : FONT_CJK_CANDIDATES) {
+            cjkPath = GetSystemFontPath(candidate);
+            if (!cjkPath.empty()) break;
+        }
+
+        if (!seguiPath.empty()) {
+            for (float sz : sizes) {
+                ImFontConfig cfg;
+                cfg.OversampleH = 2;
+                cfg.OversampleV = 1;
+                io.Fonts->AddFontFromFileTTF(seguiPath.c_str(), sz * dpiScale, &cfg,
+                                             cjkPath.empty() ? ranges : latinRanges);
+                if (!cjkPath.empty()) {
+                    ImFontConfig mergeCfg;
+                    mergeCfg.MergeMode = true;
+                    mergeCfg.OversampleH = 2;
+                    mergeCfg.OversampleV = 1;
+                    io.Fonts->AddFontFromFileTTF(cjkPath.c_str(), sz * dpiScale, &mergeCfg, ranges);
+                }
+            }
             fontLoaded = true;
-            break;
         }
     }
 
+    // Strategy 3: Any available CJK font as a standalone fallback
+    if (!fontLoaded) {
+        std::string cjkPath;
+        for (const char* candidate : FONT_CJK_CANDIDATES) {
+            cjkPath = GetSystemFontPath(candidate);
+            if (!cjkPath.empty()) break;
+        }
+        if (!cjkPath.empty()) {
+            for (float sz : sizes) {
+                ImFontConfig cfg;
+                cfg.OversampleH = 2;
+                cfg.OversampleV = 1;
+                io.Fonts->AddFontFromFileTTF(cjkPath.c_str(), sz * dpiScale, &cfg, ranges);
+            }
+            fontLoaded = true;
+        }
+    }
+
+    // Strategy 4: ImGui built-in font (no CJK support)
     if (!fontLoaded) {
         io.Fonts->AddFontDefault();
         io.Fonts->AddFontDefault();
