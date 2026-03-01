@@ -57,6 +57,45 @@ inline void SetPlayerLEDs(GattCharacteristic const& characteristic, uint8_t patt
     SendGenericCommand(characteristic, 0x09, 0x07, data);
 }
 
+// Vibration sample IDs (from protocol reverse engineering)
+enum VibrationSample : uint8_t {
+    VIB_NONE        = 0x00,  // No sound / stop
+    VIB_BUZZ        = 0x01,  // 1s sustained buzz
+    VIB_FIND        = 0x02,  // Find controller (high pitch + beeps)
+    VIB_CONNECT     = 0x03,  // Button click sound
+    VIB_PAIRING     = 0x04,  // Pairing sound
+    VIB_STRONG_THUNK= 0x05,  // Strong thunk impact
+    VIB_DUN         = 0x06,  // Short dun
+    VIB_DING        = 0x07,  // Short ding
+};
+
+// Send a predefined vibration sample via the command channel
+inline void SendVibrationSample(GattCharacteristic const& characteristic, uint8_t sampleId) {
+    std::vector<uint8_t> data(8, 0x00);
+    data[0] = sampleId;
+    SendGenericCommand(characteristic, 0x0A, 0x02, data);
+}
+
+// Send raw vibration data (16-byte frame per motor, protocol format 0x5N)
+// sequenceCounter should increment per frame (only lower 4 bits used)
+inline void SendRawVibration(GattCharacteristic const& characteristic,
+                             bool enabled, const uint8_t vibData[12],
+                             uint8_t sequenceCounter) {
+    if (!characteristic) return;
+
+    DataWriter writer;
+    // Packet A
+    writer.WriteByte(0x00);                                      // [0] frame header
+    writer.WriteByte(0x50 | (sequenceCounter & 0x0F));           // [1] vibration marker + seq
+    writer.WriteByte(enabled ? 0x01 : 0x00);                     // [2] enabled flag
+    for (int i = 0; i < 12; ++i) writer.WriteByte(vibData[i]);   // [3..14] vibration payload
+    writer.WriteByte(0x00);                                      // [15] padding
+
+    IBuffer buffer = writer.DetachBuffer();
+    characteristic.WriteValueAsync(buffer, GattWriteOption::WriteWithoutResponse).get();
+    // No sleep — raw vibration needs low latency
+}
+
 // Non-blocking versions for use inside BLE notification callbacks
 // Avoids blocking the callback thread which would freeze input processing
 inline void SetPlayerLEDsAsync(GattCharacteristic characteristic, uint8_t pattern) {
@@ -68,5 +107,12 @@ inline void SetPlayerLEDsAsync(GattCharacteristic characteristic, uint8_t patter
 inline void EmitSoundAsync(GattCharacteristic characteristic) {
     std::thread([characteristic]() {
         EmitSound(characteristic);
+    }).detach();
+}
+
+// Async vibration sample for use from ViGEm callbacks
+inline void SendVibrationSampleAsync(GattCharacteristic characteristic, uint8_t sampleId) {
+    std::thread([characteristic, sampleId]() {
+        SendVibrationSample(characteristic, sampleId);
     }).detach();
 }

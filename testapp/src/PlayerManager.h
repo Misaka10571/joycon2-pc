@@ -14,6 +14,79 @@
 #include <string>
 #include <Windows.h>
 
+// Vibration callback context passed to ViGEm as UserData
+struct VibrationContext {
+    GattCharacteristic writeChar{ nullptr };
+    GattCharacteristic writeCharLeft{ nullptr };   // for dual joycon
+    GattCharacteristic writeCharRight{ nullptr };  // for dual joycon
+    bool isDual = false;
+    std::chrono::steady_clock::time_point lastSendTime{};
+    uint8_t lastSample = 0xFF;  // track to avoid redundant sends
+    static constexpr int MIN_INTERVAL_MS = 50;     // throttle BLE writes
+};
+
+// ViGEm DS4 vibration notification callback (runs on ViGEm worker thread)
+inline VOID CALLBACK DS4VibrationCallback(
+    PVIGEM_CLIENT /*Client*/,
+    PVIGEM_TARGET /*Target*/,
+    UCHAR LargeMotor,
+    UCHAR SmallMotor,
+    DS4_LIGHTBAR_COLOR /*LightbarColor*/,
+    LPVOID UserData)
+{
+    auto* ctx = static_cast<VibrationContext*>(UserData);
+    if (!ctx) return;
+
+    auto& vibConfig = ConfigManager::Instance().config.vibrationConfig;
+    if (!vibConfig.enabled) return;
+
+    // Throttle: skip if too soon since last send
+    auto now = std::chrono::steady_clock::now();
+    auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - ctx->lastSendTime).count();
+    if (elapsed < VibrationContext::MIN_INTERVAL_MS) return;
+
+    // Apply intensity scaling
+    float scaledLarge = LargeMotor * vibConfig.intensity;
+    float scaledSmall = SmallMotor * vibConfig.intensity;
+    uint8_t motorL = static_cast<uint8_t>((std::min)(scaledLarge, 255.0f));
+    uint8_t motorR = static_cast<uint8_t>((std::min)(scaledSmall, 255.0f));
+
+    // Map motor values to predefined vibration samples
+    uint8_t sample;
+    if (motorL == 0 && motorR == 0) {
+        sample = VIB_NONE;
+    } else if (motorL > 180 || motorR > 180) {
+        sample = VIB_BUZZ;           // Strong sustained vibration
+    } else if (motorL > 80 || motorR > 80) {
+        sample = VIB_STRONG_THUNK;   // Medium impact
+    } else {
+        sample = VIB_DUN;            // Light feedback
+    }
+
+    // Skip if same sample as last sent
+    if (sample == ctx->lastSample && sample != VIB_NONE) return;
+    ctx->lastSample = sample;
+    ctx->lastSendTime = now;
+
+    if (ctx->isDual) {
+        // Dual JoyCon: large motor -> left, small motor -> right
+        if (ctx->writeCharLeft && motorL > 0) {
+            SendVibrationSampleAsync(ctx->writeCharLeft, sample);
+        }
+        if (ctx->writeCharRight && motorR > 0) {
+            SendVibrationSampleAsync(ctx->writeCharRight, sample);
+        }
+        if (motorL == 0 && motorR == 0) {
+            if (ctx->writeCharLeft)  SendVibrationSampleAsync(ctx->writeCharLeft, VIB_NONE);
+            if (ctx->writeCharRight) SendVibrationSampleAsync(ctx->writeCharRight, VIB_NONE);
+        }
+    } else {
+        if (ctx->writeChar) {
+            SendVibrationSampleAsync(ctx->writeChar, sample);
+        }
+    }
+}
+
 enum class ControllerType {
     SingleJoyCon = 1,
     DualJoyCon = 2,
@@ -48,6 +121,8 @@ struct SingleJoyConPlayer {
     // Sub-pixel accumulation for smooth mouse movement (direct mode fallback)
     float accumX = 0.0f;
     float accumY = 0.0f;
+    // Vibration context for ViGEm callback
+    std::unique_ptr<VibrationContext> vibCtx;
     // Interpolation state for high-frequency mouse output
     std::atomic<float> pendingDX{ 0.0f };
     std::atomic<float> pendingDY{ 0.0f };
@@ -70,6 +145,7 @@ struct SingleJoyConPlayer {
           mb4Pressed(o.mb4Pressed), mb5Pressed(o.mb5Pressed),
           leftBtnPressed(o.leftBtnPressed), rightBtnPressed(o.rightBtnPressed),
           middleBtnPressed(o.middleBtnPressed), accumX(o.accumX), accumY(o.accumY),
+          vibCtx(std::move(o.vibCtx)),
           pendingDX(o.pendingDX.load()), pendingDY(o.pendingDY.load()),
           newReportReady(o.newReportReady.load()), mouseInterpolActive(o.mouseInterpolActive.load()),
           lastBLETimestamp(o.lastBLETimestamp),
@@ -85,6 +161,7 @@ struct SingleJoyConPlayer {
             mb4Pressed = o.mb4Pressed; mb5Pressed = o.mb5Pressed;
             leftBtnPressed = o.leftBtnPressed; rightBtnPressed = o.rightBtnPressed;
             middleBtnPressed = o.middleBtnPressed; accumX = o.accumX; accumY = o.accumY;
+            vibCtx = std::move(o.vibCtx);
             pendingDX.store(o.pendingDX.load()); pendingDY.store(o.pendingDY.load());
             newReportReady.store(o.newReportReady.load()); mouseInterpolActive.store(o.mouseInterpolActive.load());
             lastBLETimestamp = o.lastBLETimestamp;
@@ -108,12 +185,14 @@ struct DualJoyConPlayer {
     std::atomic<std::shared_ptr<std::vector<uint8_t>>> rightBufferAtomic{ std::make_shared<std::vector<uint8_t>>() };
     std::mutex bufferMutex;
     std::condition_variable bufferCV;
+    std::unique_ptr<VibrationContext> vibCtx;
 };
 
 struct ProControllerPlayer {
     ConnectedJoyCon controller;
     PVIGEM_TARGET ds4Controller = nullptr;
     ControllerType type = ControllerType::ProController; // can also be NSOGCController
+    std::unique_ptr<VibrationContext> vibCtx;
 };
 
 // Button mapping application (from original testapp.cpp)
@@ -237,6 +316,12 @@ public:
         singlePlayers.push_back(SingleJoyConPlayer(cj, ds4, side, orientation));
         auto& player = singlePlayers.back();
         auto& mouseConfig = ConfigManager::Instance().config.mouseConfig;
+
+        // Register vibration callback
+        player.vibCtx = std::make_unique<VibrationContext>();
+        player.vibCtx->writeChar = cj.writeChar;
+        vigem_target_ds4_register_notification(
+            vigem.GetClient(), ds4, DS4VibrationCallback, player.vibCtx.get());
 
         player.joycon.inputChar.ValueChanged(
             [joyconSide = player.side, joyconOrientation = player.orientation,
@@ -471,6 +556,14 @@ public:
         dp->ds4Controller = ds4;
         dp->running.store(true);
 
+        // Register vibration callback for dual JoyCon
+        dp->vibCtx = std::make_unique<VibrationContext>();
+        dp->vibCtx->isDual = true;
+        dp->vibCtx->writeCharLeft = leftJoyCon.writeChar;
+        dp->vibCtx->writeCharRight = pendingDualRight.writeChar;
+        vigem_target_ds4_register_notification(
+            vigem.GetClient(), ds4, DS4VibrationCallback, dp->vibCtx.get());
+
         dp->leftJoyCon.inputChar.ValueChanged([ptr = dp.get()](GattCharacteristic const&, GattValueChangedEventArgs const& args) {
             auto reader = DataReader::FromBuffer(args.CharacteristicValue());
             auto buf = std::make_shared<std::vector<uint8_t>>(reader.UnconsumedBufferLength());
@@ -563,7 +656,15 @@ public:
             EmitSound(controller.writeChar);
         }
 
-        proPlayers.push_back({ controller, ds4, type });
+        proPlayers.push_back({ controller, ds4, type, nullptr });
+
+        // Register vibration callback for pro/GC controller
+        auto& pp = proPlayers.back();
+        pp.vibCtx = std::make_unique<VibrationContext>();
+        pp.vibCtx->writeChar = controller.writeChar;
+        vigem_target_ds4_register_notification(
+            vigem.GetClient(), ds4, DS4VibrationCallback, pp.vibCtx.get());
+
         return true;
     }
 
@@ -571,6 +672,7 @@ public:
     void RemovePlayerByGlobalIndex(int globalIdx) {
         int idx = globalIdx;
         if (idx < (int)singlePlayers.size()) {
+            vigem_target_ds4_unregister_notification(singlePlayers[idx].ds4Controller);
             ViGEmManager::Instance().RemoveTarget(singlePlayers[idx].ds4Controller);
             singlePlayers.erase(singlePlayers.begin() + idx);
             return;
@@ -579,12 +681,14 @@ public:
         if (idx < (int)dualPlayers.size()) {
             dualPlayers[idx]->running.store(false);
             if (dualPlayers[idx]->updateThread.joinable()) dualPlayers[idx]->updateThread.join();
+            vigem_target_ds4_unregister_notification(dualPlayers[idx]->ds4Controller);
             ViGEmManager::Instance().RemoveTarget(dualPlayers[idx]->ds4Controller);
             dualPlayers.erase(dualPlayers.begin() + idx);
             return;
         }
         idx -= (int)dualPlayers.size();
         if (idx < (int)proPlayers.size()) {
+            vigem_target_ds4_unregister_notification(proPlayers[idx].ds4Controller);
             ViGEmManager::Instance().RemoveTarget(proPlayers[idx].ds4Controller);
             proPlayers.erase(proPlayers.begin() + idx);
             return;
@@ -599,12 +703,19 @@ public:
         for (auto& dp : dualPlayers) {
             dp->running.store(false);
             if (dp->updateThread.joinable()) dp->updateThread.join();
+            vigem_target_ds4_unregister_notification(dp->ds4Controller);
             ViGEmManager::Instance().RemoveTarget(dp->ds4Controller);
         }
         dualPlayers.clear();
-        for (auto& sp : singlePlayers) ViGEmManager::Instance().RemoveTarget(sp.ds4Controller);
+        for (auto& sp : singlePlayers) {
+            vigem_target_ds4_unregister_notification(sp.ds4Controller);
+            ViGEmManager::Instance().RemoveTarget(sp.ds4Controller);
+        }
         singlePlayers.clear();
-        for (auto& pp : proPlayers) ViGEmManager::Instance().RemoveTarget(pp.ds4Controller);
+        for (auto& pp : proPlayers) {
+            vigem_target_ds4_unregister_notification(pp.ds4Controller);
+            ViGEmManager::Instance().RemoveTarget(pp.ds4Controller);
+        }
         proPlayers.clear();
     }
 

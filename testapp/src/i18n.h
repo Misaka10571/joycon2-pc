@@ -95,6 +95,7 @@ inline const char* T(const char* key) {
                                                                      {"zh", u8"光标平滑（插值）"}}},
         {"mouse_interp_rate",    {{"en", "Interpolation Rate (Hz)"},
                                                                      {"zh", u8"插值频率 (Hz)"}}},
+
     };
 
     std::string langKey = (g_currentLang == Lang::EN) ? "en" : "zh";

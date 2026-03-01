@@ -37,9 +37,15 @@ struct MouseConfig {
     int interpolationRateHz = 125;
 };
 
+struct VibrationConfig {
+    bool enabled = true;
+    float intensity = 1.0f;    // 0.0 - 1.0 scale factor
+};
+
 struct AppConfig {
     ProControllerConfig proConfig;
     MouseConfig mouseConfig;
+    VibrationConfig vibrationConfig;
 };
 
 // Button mapping string conversion helpers
@@ -111,6 +117,10 @@ inline std::string ConfigToJSON(const AppConfig& config) {
     oss << "    \"scrollSpeed\": " << config.mouseConfig.scrollSpeed << ",\n";
     oss << "    \"interpolationEnabled\": " << (config.mouseConfig.interpolationEnabled ? "true" : "false") << ",\n";
     oss << "    \"interpolationRateHz\": " << config.mouseConfig.interpolationRateHz << "\n";
+    oss << "  },\n";
+    oss << "  \"vibration\": {\n";
+    oss << "    \"enabled\": " << (config.vibrationConfig.enabled ? "true" : "false") << ",\n";
+    oss << "    \"intensity\": " << config.vibrationConfig.intensity << "\n";
     oss << "  }\n";
     oss << "}";
     return oss.str();
@@ -196,6 +206,18 @@ inline bool JSONToConfig(const std::string& json, AppConfig& config) {
             config.mouseConfig.scrollSpeed = (float)ExtractJsonNumber(mouseStr, "scrollSpeed", 40.0);
             config.mouseConfig.interpolationEnabled = ExtractJsonBool(mouseStr, "interpolationEnabled", true);
             config.mouseConfig.interpolationRateHz = static_cast<int>(ExtractJsonNumber(mouseStr, "interpolationRateHz", 500));
+        }
+    }
+
+    // Parse vibration config
+    auto vibPos = json.find("\"vibration\"");
+    if (vibPos != std::string::npos) {
+        auto vibStart = json.find('{', vibPos);
+        auto vibEnd = json.find('}', vibStart);
+        if (vibStart != std::string::npos && vibEnd != std::string::npos) {
+            std::string vibStr = json.substr(vibStart, vibEnd - vibStart + 1);
+            config.vibrationConfig.enabled = ExtractJsonBool(vibStr, "enabled", true);
+            config.vibrationConfig.intensity = (float)ExtractJsonNumber(vibStr, "intensity", 1.0);
         }
     }
 
