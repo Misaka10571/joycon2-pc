@@ -721,7 +721,7 @@ inline void RenderLayoutManager() {
 
     auto& config = ConfigManager::Instance().config.proConfig;
     float totalW = ImGui::GetContentRegionAvail().x;
-    float leftW = totalW * 0.35f;
+    float leftW = (std::max)(totalW * 0.35f, S(320));
     float availH = ImGui::GetContentRegionAvail().y;
 
     // === Left column (layout list + buttons) ===

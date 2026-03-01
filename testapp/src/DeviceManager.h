@@ -155,7 +155,7 @@ private:
             }
         }
 
-        // Request optimized connection parameters
+        // Request lowest connection interval (7.5ms) for minimal input lag
         try {
             auto connectionParams = BluetoothLEPreferredConnectionParameters::ThroughputOptimized();
             cj.device.RequestPreferredConnectionParameters(connectionParams);

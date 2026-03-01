@@ -27,7 +27,7 @@ inline void SendGenericCommand(GattCharacteristic const& characteristic, uint8_t
 
     IBuffer buffer = writer.DetachBuffer();
     characteristic.WriteValueAsync(buffer, GattWriteOption::WriteWithoutResponse).get();
-    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    std::this_thread::sleep_for(std::chrono::milliseconds(35));
 }
 
 inline void SendCustomCommands(GattCharacteristic const& characteristic) {
@@ -41,7 +41,7 @@ inline void SendCustomCommands(GattCharacteristic const& characteristic) {
         writer.WriteBytes(cmd);
         IBuffer buffer = writer.DetachBuffer();
         characteristic.WriteValueAsync(buffer, GattWriteOption::WriteWithoutResponse).get();
-        std::this_thread::sleep_for(std::chrono::milliseconds(500));
+        std::this_thread::sleep_for(std::chrono::milliseconds(300));
     }
 }
 
@@ -55,4 +55,18 @@ inline void SetPlayerLEDs(GattCharacteristic const& characteristic, uint8_t patt
     std::vector<uint8_t> data(8, 0x00);
     data[0] = pattern;
     SendGenericCommand(characteristic, 0x09, 0x07, data);
+}
+
+// Non-blocking versions for use inside BLE notification callbacks
+// Avoids blocking the callback thread which would freeze input processing
+inline void SetPlayerLEDsAsync(GattCharacteristic characteristic, uint8_t pattern) {
+    std::thread([characteristic, pattern]() {
+        SetPlayerLEDs(characteristic, pattern);
+    }).detach();
+}
+
+inline void EmitSoundAsync(GattCharacteristic characteristic) {
+    std::thread([characteristic]() {
+        EmitSound(characteristic);
+    }).detach();
 }

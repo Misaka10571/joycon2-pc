@@ -9,6 +9,8 @@
 #include <memory>
 #include <thread>
 #include <atomic>
+#include <mutex>
+#include <condition_variable>
 #include <string>
 #include <Windows.h>
 
@@ -57,6 +59,8 @@ struct DualJoyConPlayer {
     std::thread updateThread;
     std::atomic<std::shared_ptr<std::vector<uint8_t>>> leftBufferAtomic{ std::make_shared<std::vector<uint8_t>>() };
     std::atomic<std::shared_ptr<std::vector<uint8_t>>> rightBufferAtomic{ std::make_shared<std::vector<uint8_t>>() };
+    std::mutex bufferMutex;
+    std::condition_variable bufferCV;
 };
 
 struct ProControllerPlayer {
@@ -207,8 +211,8 @@ public:
                     if (playerPtr->mouseMode == 1) ledPattern = 0x02;
                     else if (playerPtr->mouseMode == 2) ledPattern = 0x04;
                     else if (playerPtr->mouseMode == 3) ledPattern = 0x08;
-                    SetPlayerLEDs(playerPtr->joycon.writeChar, ledPattern);
-                    EmitSound(playerPtr->joycon.writeChar);
+                    SetPlayerLEDsAsync(playerPtr->joycon.writeChar, ledPattern);
+                    EmitSoundAsync(playerPtr->joycon.writeChar);
                 }
                 playerPtr->wasChatPressed = chatPressed;
 
@@ -387,6 +391,7 @@ public:
             auto buf = std::make_shared<std::vector<uint8_t>>(reader.UnconsumedBufferLength());
             reader.ReadBytes(*buf);
             ptr->leftBufferAtomic.store(buf, std::memory_order_release);
+            ptr->bufferCV.notify_one();
         });
 
         dp->leftJoyCon.inputChar.WriteClientCharacteristicConfigurationDescriptorAsync(
@@ -397,22 +402,27 @@ public:
             auto buf = std::make_shared<std::vector<uint8_t>>(reader.UnconsumedBufferLength());
             reader.ReadBytes(*buf);
             ptr->rightBufferAtomic.store(buf, std::memory_order_release);
+            ptr->bufferCV.notify_one();
         });
 
         dp->rightJoyCon.inputChar.WriteClientCharacteristicConfigurationDescriptorAsync(
             GattClientCharacteristicConfigurationDescriptorValue::Notify).get();
 
         dp->updateThread = std::thread([ptr = dp.get()]() {
+            std::shared_ptr<std::vector<uint8_t>> prevLeft, prevRight;
             while (ptr->running.load(std::memory_order_acquire)) {
+                {
+                    std::unique_lock<std::mutex> lock(ptr->bufferMutex);
+                    ptr->bufferCV.wait_for(lock, std::chrono::milliseconds(4));
+                }
                 auto leftBuf = ptr->leftBufferAtomic.load(std::memory_order_acquire);
                 auto rightBuf = ptr->rightBufferAtomic.load(std::memory_order_acquire);
-                if (leftBuf->empty() || rightBuf->empty()) {
-                    std::this_thread::sleep_for(std::chrono::milliseconds(5));
-                    continue;
-                }
+                if (leftBuf->empty() || rightBuf->empty()) continue;
+                if (leftBuf == prevLeft && rightBuf == prevRight) continue;
+                prevLeft = leftBuf;
+                prevRight = rightBuf;
                 DS4_REPORT_EX report = GenerateDualJoyConDS4Report(*leftBuf, *rightBuf, ptr->gyroSource);
                 vigem_target_ds4_update_ex(ViGEmManager::Instance().GetClient(), ptr->ds4Controller, report);
-                std::this_thread::sleep_for(std::chrono::milliseconds(16));
             }
         });
 
