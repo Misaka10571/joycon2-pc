@@ -918,7 +918,7 @@ inline void RenderMouseSettings() {
     if (mouseConfig.interpolationEnabled) {
         ImGui::Text("%s", T("mouse_interp_rate"));
         ImGui::SetNextItemWidth(sliderW);
-        if (ImGui::SliderInt("##interpRate", &mouseConfig.interpolationRateHz, 125, 1000, "%d Hz"))
+        if (ImGui::SliderInt("##interpRate", &mouseConfig.interpolationRateHz, 100, 500, "%d Hz"))
             changed = true;
     }
 

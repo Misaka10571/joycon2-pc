@@ -22,6 +22,7 @@
 #include "ViGEmManager.h"
 #include "PlayerManager.h"
 #include "i18n.h"
+#include "app_icon.h"
 
 #pragma comment(lib, "dwmapi.lib")
 #pragma comment(lib, "winmm.lib")
@@ -31,6 +32,7 @@ static ID3D11Device*            g_pd3dDevice = nullptr;
 static ID3D11DeviceContext*     g_pd3dDeviceContext = nullptr;
 static IDXGISwapChain*          g_pSwapChain = nullptr;
 static ID3D11RenderTargetView*  g_mainRenderTargetView = nullptr;
+static ID3D11ShaderResourceView* g_pIconTextureView = nullptr;
 static bool                     g_resizeRequested = false;
 static UINT                     g_resizeW = 0, g_resizeH = 0;
 
@@ -46,6 +48,7 @@ bool CreateDeviceD3D(HWND hWnd);
 void CleanupDeviceD3D();
 void CreateRenderTarget();
 void CleanupRenderTarget();
+bool LoadTextureFromMemory(ID3D11Device* pd3dDevice);
 void LoadFonts(ImGuiIO& io, float dpiScale);
 LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
@@ -72,6 +75,154 @@ static const int NAV_COUNT = 4;
 // Font path relative to exe
 static const char* FONT_PATH = "resources/NotoSansSC-Regular.otf";
 
+bool LoadTextureFromMemory(ID3D11Device* pd3dDevice)
+{
+    // Create D3D11 Texture description
+    D3D11_TEXTURE2D_DESC desc = {};
+    desc.Width = icon_width;
+    desc.Height = icon_height;
+    desc.MipLevels = 1;
+    desc.ArraySize = 1;
+    desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    desc.SampleDesc.Count = 1;
+    desc.Usage = D3D11_USAGE_DEFAULT;
+    desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+    desc.CPUAccessFlags = 0;
+
+    // Point to raw pixel data
+    D3D11_SUBRESOURCE_DATA subResource;
+    subResource.pSysMem = icon_pixels;
+    subResource.SysMemPitch = desc.Width * 4;
+    subResource.SysMemSlicePitch = 0;
+
+    ID3D11Texture2D* pTexture = nullptr;
+    HRESULT hr = pd3dDevice->CreateTexture2D(&desc, &subResource, &pTexture);
+    if (FAILED(hr)) return false;
+
+    // Create shader resource view
+    D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
+    srvDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    srvDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
+    srvDesc.Texture2D.MipLevels = desc.MipLevels;
+    srvDesc.Texture2D.MostDetailedMip = 0;
+    
+    hr = pd3dDevice->CreateShaderResourceView(pTexture, &srvDesc, &g_pIconTextureView);
+    pTexture->Release();
+    
+    return SUCCEEDED(hr);
+}
+
+// ---------- Joy-Con Icon drawing ----------
+void DrawJoyConIcon(ImDrawList* dl, ImVec2 pos, float size) {
+    // Stylized pair of Joy-Cons (Left + Right) as app icon
+    float h   = size;                // total height
+    float jw  = size * 0.38f;        // width of each Joy-Con body
+    float gap = size * 0.08f;        // gap between L and R
+    float totalW = jw * 2 + gap;
+    float ox  = pos.x + (size - totalW) * 0.5f; // center horizontally in square
+
+    // Round radii
+    float rTop = jw * 0.50f;         // top fully rounded (pill ends)
+    float rBot = jw * 0.30f;         // bottom a bit less rounded
+
+    // Colors
+    ImU32 colL    = IM_COL32(0x00, 0xC8, 0xD6, 255);  // neon blue  (Nintendo left)
+    ImU32 colR    = IM_COL32(0xFF, 0x32, 0x32, 255);  // neon red   (Nintendo right)
+    ImU32 colRail = IM_COL32(0x22, 0x22, 0x22, 200);  // dark rail
+    ImU32 white   = IM_COL32(255, 255, 255, 220);
+
+    float lx = ox;
+    float rx = ox + jw + gap;
+
+    // --- Left Joy-Con body ---
+    dl->AddRectFilled(ImVec2(lx, pos.y), ImVec2(lx + jw, pos.y + h), colL, rTop);
+    // Inner rail (dark stripe on right side of left JC)
+    float railW = jw * 0.10f;
+    dl->AddRectFilled(
+        ImVec2(lx + jw - railW, pos.y + rTop * 0.4f),
+        ImVec2(lx + jw,         pos.y + h - rBot * 0.4f),
+        colRail, railW * 0.3f);
+
+    // Left analog stick
+    float stickR  = jw * 0.20f;
+    float stickCx = lx + (jw - railW) * 0.5f;
+    float stickCy = pos.y + h * 0.28f;
+    dl->AddCircleFilled(ImVec2(stickCx, stickCy), stickR, IM_COL32(0x00, 0x96, 0xA0, 255));
+    dl->AddCircleFilled(ImVec2(stickCx, stickCy), stickR * 0.55f, white);
+
+    // D-pad (cross shape)
+    float cx = stickCx;
+    float cy = pos.y + h * 0.56f;
+    float cArm = jw * 0.12f;   // arm length
+    float cThk = jw * 0.09f;   // arm thickness
+    dl->AddRectFilled(ImVec2(cx - cArm, cy - cThk), ImVec2(cx + cArm, cy + cThk), white, cThk * 0.3f);
+    dl->AddRectFilled(ImVec2(cx - cThk, cy - cArm), ImVec2(cx + cThk, cy + cArm), white, cThk * 0.3f);
+
+    // Minus button (small horizontal line)
+    float minusY = pos.y + h * 0.14f;
+    dl->AddLine(ImVec2(cx - jw * 0.06f, minusY), ImVec2(cx + jw * 0.06f, minusY),
+        white, size * 0.02f > 0.5f ? size * 0.02f : 0.5f);
+
+    // SR/SL small bumps on outer left edge
+    float bumpW = jw * 0.05f;
+    float bumpH = h * 0.06f;
+    dl->AddRectFilled(
+        ImVec2(lx - bumpW * 0.3f, pos.y + h * 0.35f),
+        ImVec2(lx + bumpW,        pos.y + h * 0.35f + bumpH),
+        colL, bumpW * 0.4f);
+    dl->AddRectFilled(
+        ImVec2(lx - bumpW * 0.3f, pos.y + h * 0.48f),
+        ImVec2(lx + bumpW,        pos.y + h * 0.48f + bumpH),
+        colL, bumpW * 0.4f);
+
+    // --- Right Joy-Con body ---
+    dl->AddRectFilled(ImVec2(rx, pos.y), ImVec2(rx + jw, pos.y + h), colR, rTop);
+    // Inner rail (dark stripe on left side of right JC)
+    dl->AddRectFilled(
+        ImVec2(rx,          pos.y + rTop * 0.4f),
+        ImVec2(rx + railW,  pos.y + h - rBot * 0.4f),
+        colRail, railW * 0.3f);
+
+    // Right analog stick (lower position — mirrors real layout)
+    float rstickCx = rx + railW + (jw - railW) * 0.5f;
+    float rstickCy = pos.y + h * 0.56f;
+    dl->AddCircleFilled(ImVec2(rstickCx, rstickCy), stickR, IM_COL32(0xC8, 0x28, 0x28, 255));
+    dl->AddCircleFilled(ImVec2(rstickCx, rstickCy), stickR * 0.55f, white);
+
+    // Face buttons (4 circles in diamond — A B X Y)
+    float fbCx = rstickCx;
+    float fbCy = pos.y + h * 0.28f;
+    float fbOff = jw * 0.13f;
+    float fbR   = jw * 0.06f;
+    dl->AddCircleFilled(ImVec2(fbCx,        fbCy - fbOff), fbR, white); // X (top)
+    dl->AddCircleFilled(ImVec2(fbCx,        fbCy + fbOff), fbR, white); // B (bottom)
+    dl->AddCircleFilled(ImVec2(fbCx - fbOff, fbCy),        fbR, white); // Y (left)
+    dl->AddCircleFilled(ImVec2(fbCx + fbOff, fbCy),        fbR, white); // A (right)
+
+    // Plus button (small cross)
+    float plusY = pos.y + h * 0.14f;
+    float pLen = jw * 0.05f;
+    float pThk = size * 0.02f > 0.5f ? size * 0.02f : 0.5f;
+    dl->AddLine(ImVec2(fbCx - pLen, plusY), ImVec2(fbCx + pLen, plusY), white, pThk);
+    dl->AddLine(ImVec2(fbCx, plusY - pLen), ImVec2(fbCx, plusY + pLen), white, pThk);
+
+    // Shoulder buttons (L/R bumps at very top)
+    float shW   = jw * 0.55f;
+    float shH   = h * 0.04f;
+    float shR   = shH * 0.5f;
+    float shTopY = pos.y - shH * 0.15f;
+    // L shoulder
+    dl->AddRectFilled(
+        ImVec2(lx + jw * 0.10f, shTopY),
+        ImVec2(lx + jw * 0.10f + shW, shTopY + shH),
+        IM_COL32(0x00, 0xA0, 0xAA, 255), shR);
+    // R shoulder
+    dl->AddRectFilled(
+        ImVec2(rx + jw * 0.35f, shTopY),
+        ImVec2(rx + jw * 0.35f + shW, shTopY + shH),
+        IM_COL32(0xCC, 0x28, 0x28, 255), shR);
+}
+
 // ---------- Title Bar rendering (frameless window) ----------
 void RenderTitleBar() {
     float titleH = S(TITLE_BAR_HEIGHT_DP);
@@ -87,18 +238,20 @@ void RenderTitleBar() {
         ImVec2(wPos.x + windowW, wPos.y + titleH - 1),
         ImGui::GetColorU32(UITheme::Divider));
 
-    // App icon (colored rounded square)
-    float iconSz = S(14);
+    // App icon (Joy-Con pair)
+    float iconSz = S(22);
     float iconY = (titleH - iconSz) * 0.5f;
-    dl->AddRectFilled(
-        ImVec2(wPos.x + S(14), wPos.y + iconY),
-        ImVec2(wPos.x + S(14) + iconSz, wPos.y + iconY + iconSz),
-        ImGui::GetColorU32(UITheme::Primary), S(3));
+    ImVec2 pos(wPos.x + S(10), wPos.y + iconY);
+    if (g_pIconTextureView) {
+        dl->AddImage((ImTextureID)g_pIconTextureView, pos, ImVec2(pos.x + iconSz, pos.y + iconSz));
+    } else {
+        DrawJoyConIcon(dl, pos, iconSz);
+    }
 
     // Title text
     const char* title = "JoyCon2 Connector";
     float textY = wPos.y + (titleH - ImGui::GetTextLineHeight()) * 0.5f;
-    dl->AddText(ImVec2(wPos.x + S(36), textY),
+    dl->AddText(ImVec2(wPos.x + S(38), textY),
         ImGui::GetColorU32(UITheme::TextSecondary), title);
 
     // Window control buttons (right side)
@@ -323,6 +476,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
     wc.lpfnWndProc = WndProc;
     wc.hInstance = hInstance;
     wc.hCursor = LoadCursorA(NULL, IDC_ARROW);
+    wc.hIcon = LoadIcon(hInstance, MAKEINTRESOURCE(101));
+    wc.hIconSm = LoadIcon(hInstance, MAKEINTRESOURCE(101));
     wc.lpszClassName = L"JoyCon2ConnectorClass";
     RegisterClassExW(&wc);
 
@@ -375,6 +530,9 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
     // Init platform/renderer
     ImGui_ImplWin32_Init(hwnd);
     ImGui_ImplDX11_Init(g_pd3dDevice, g_pd3dDeviceContext);
+
+    // Initialize ImGui custom icon texture
+    LoadTextureFromMemory(g_pd3dDevice);
 
     // Apply theme
     UITheme::Apply();
@@ -474,6 +632,11 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
     ViGEmManager::Instance().Shutdown();
     ConfigManager::Instance().Save();
     timeEndPeriod(1);
+
+    if (g_pIconTextureView) {
+        g_pIconTextureView->Release();
+        g_pIconTextureView = nullptr;
+    }
 
     ImGui_ImplDX11_Shutdown();
     ImGui_ImplWin32_Shutdown();

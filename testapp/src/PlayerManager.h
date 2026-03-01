@@ -284,7 +284,7 @@ public:
                         playerPtr->lastOpticalX = rawX;
                         playerPtr->lastOpticalY = rawY;
 
-                        if (dx != 0 || dy != 0) {
+                        {
                             float sensitivity = mouseConfig.fastSensitivity;
                             if (playerPtr->mouseMode == 2) sensitivity = mouseConfig.normalSensitivity;
                             else if (playerPtr->mouseMode == 3) sensitivity = mouseConfig.slowSensitivity;
@@ -305,15 +305,11 @@ public:
                                 playerPtr->lastBLETimestamp = now;
                                 playerPtr->bleTimestampInitialized = true;
 
-                                // Feed interpolation thread: accumulate pending delta
-                                playerPtr->pendingDX.store(
-                                    playerPtr->pendingDX.load(std::memory_order_relaxed) + scaledDX,
-                                    std::memory_order_relaxed);
-                                playerPtr->pendingDY.store(
-                                    playerPtr->pendingDY.load(std::memory_order_relaxed) + scaledDY,
-                                    std::memory_order_relaxed);
+                                // Feed interpolation thread with new delta (replaces any pending)
+                                playerPtr->pendingDX.store(scaledDX, std::memory_order_relaxed);
+                                playerPtr->pendingDY.store(scaledDY, std::memory_order_relaxed);
                                 playerPtr->newReportReady.store(true, std::memory_order_release);
-                            } else {
+                            } else if (dx != 0 || dy != 0) {
                                 // Direct mode (no interpolation): original behavior
                                 playerPtr->accumX += scaledDX;
                                 playerPtr->accumY += scaledDY;
@@ -643,8 +639,8 @@ private:
 
             while (mouseInterpolRunning.load(std::memory_order_relaxed)) {
                 int rateHz = mouseConfig.interpolationRateHz;
-                if (rateHz < 125) rateHz = 125;
-                if (rateHz > 1000) rateHz = 1000;
+                if (rateHz < 100) rateHz = 100;
+                if (rateHz > 500) rateHz = 500;
                 float tickMs = 1000.0f / rateHz;
 
                 // Ensure states vector matches player count
@@ -666,19 +662,29 @@ private:
                         float dx = player.pendingDX.exchange(0.0f, std::memory_order_relaxed);
                         float dy = player.pendingDY.exchange(0.0f, std::memory_order_relaxed);
 
-                        // Add any unfinished remainder from previous report
-                        st.remainX += dx;
-                        st.remainY += dy;
+                        // Replace old remainder — new report cancels any unfinished old movement
+                        // This prevents inertia when the user stops suddenly
+                        st.remainX = dx;
+                        st.remainY = dy;
 
-                        // Calculate how many ticks to spread this over
-                        float interval = player.reportIntervalMs.load(std::memory_order_relaxed);
-                        if (interval < 5.0f) interval = 5.0f;
-                        if (interval > 50.0f) interval = 50.0f;
-                        int ticks = (std::max)(1, static_cast<int>(interval / tickMs));
+                        if (dx == 0.0f && dy == 0.0f) {
+                            // Zero movement: immediately stop all interpolation
+                            st.ticksLeft = 0;
+                            st.perTickX = 0.0f;
+                            st.perTickY = 0.0f;
+                            st.remainX = 0.0f;
+                            st.remainY = 0.0f;
+                        } else {
+                            // Calculate how many ticks to spread this over
+                            float interval = player.reportIntervalMs.load(std::memory_order_relaxed);
+                            if (interval < 5.0f) interval = 5.0f;
+                            if (interval > 50.0f) interval = 50.0f;
+                            int ticks = (std::max)(1, static_cast<int>(interval / tickMs));
 
-                        st.perTickX = st.remainX / ticks;
-                        st.perTickY = st.remainY / ticks;
-                        st.ticksLeft = ticks;
+                            st.perTickX = st.remainX / ticks;
+                            st.perTickY = st.remainY / ticks;
+                            st.ticksLeft = ticks;
+                        }
                         st.lastActivity = now;
                     }
 

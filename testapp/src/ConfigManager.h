@@ -34,7 +34,7 @@ struct MouseConfig {
     float slowSensitivity = 0.3f;
     float scrollSpeed = 40.0f;
     bool interpolationEnabled = true;
-    int interpolationRateHz = 500;
+    int interpolationRateHz = 125;
 };
 
 struct AppConfig {

@@ -1,2 +1,3 @@
 #include <winuser.h>
+101 ICON "app.ico"
 1 RT_MANIFEST "app.manifest"
