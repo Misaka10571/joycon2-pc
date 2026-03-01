@@ -17,7 +17,7 @@ inline float S(float v) { return UITheme::S(v); }
 
 // Current wizard state for Add Device
 struct AddDeviceWizard {
-    int step = 0;  // 0 = select type, 1 = configure, 2 = scanning, 3 = dual second scan
+    int step = 0;  // 0 = select type, 1 = configure, 2 = scanning, 3 = dual right success, 4 = dual left scan
     ControllerType selectedType = ControllerType::SingleJoyCon;
     JoyConSide selectedSide = JoyConSide::Left;
     JoyConOrientation selectedOrientation = JoyConOrientation::Upright;
@@ -460,10 +460,9 @@ inline void RenderAddDevice(int& activePage) {
     ImGui::SetCursorPos(ImVec2(S(24), S(16)));
 
     // Step indicators
-    ImGui::TextColored(UITheme::TextTertiary, "%s %d / %s",
-        g_wizard.step <= 2 ? "" : "",
-        g_wizard.step + 1,
-        g_wizard.selectedType == ControllerType::DualJoyCon ? "4" : "3");
+    int displayStep = g_wizard.step + 1;
+    const char* totalSteps = (g_wizard.selectedType == ControllerType::DualJoyCon) ? "5" : "3";
+    ImGui::TextColored(UITheme::TextTertiary, "%d / %s", displayStep, totalSteps);
     ImGui::Spacing();
 
     if (g_wizard.step == 0) {
@@ -573,7 +572,7 @@ inline void RenderAddDevice(int& activePage) {
     } else if (g_wizard.step == 2) {
         // Step 3: Scanning
         if (g_wizard.selectedType == ControllerType::DualJoyCon && !g_wizard.dualFirstDone) {
-            SectionLabel(u8"Scan RIGHT Joy-Con / \u626b\u63cf\u53f3 Joy-Con");
+            SectionLabel(T("add_scan_right_title"));
         } else {
             SectionLabel(T("add_step3_title"));
         }
@@ -581,7 +580,7 @@ inline void RenderAddDevice(int& activePage) {
         ImGui::Spacing();
 
         if (!g_wizard.scanStarted) {
-            ImGui::TextColored(UITheme::TextSecondary, "%s", T("add_scanning_hint"));
+            ImGui::TextColored(UITheme::TextSecondary, "%s", T("add_pre_scan_hint"));
             ImGui::Spacing();
             if (PrimaryButton(T("add_start_scan"))) {
                 g_wizard.scanStarted = true;
@@ -600,7 +599,7 @@ inline void RenderAddDevice(int& activePage) {
                                 if (ok) {
                                     wiz.dualFirstDone = true;
                                     wiz.scanStarted = false; // reset scan for second Joy-Con
-                                    wiz.step = 3; // go to dual step 2
+                                    wiz.step = 3; // go to dual right success page
                                     return;
                                 }
                             } else {
@@ -633,7 +632,7 @@ inline void RenderAddDevice(int& activePage) {
                 // Still scanning
                 Spinner("##scan", 16.0f, 3.0f, ImGui::GetColorU32(UITheme::Primary));
                 ImGui::SameLine();
-                ImGui::TextColored(UITheme::TextSecondary, "%s", T("add_scanning_hint"));
+                ImGui::TextColored(UITheme::TextSecondary, "%s", T("add_scanning_active_hint"));
 
                 ImGui::Spacing();
                 if (SecondaryButton(T("add_cancel"))) {
@@ -660,12 +659,22 @@ inline void RenderAddDevice(int& activePage) {
         }
 
     } else if (g_wizard.step == 3) {
-        // Step 4 (Dual JoyCon only): Scan LEFT Joy-Con
-        SectionLabel(u8"Scan LEFT Joy-Con / \u626b\u63cf\u5de6 Joy-Con");
+        // Step 4 (Dual JoyCon only): Right Joy-Con connected success page
+        SectionLabel(T("add_right_connected"));
+        ImGui::Spacing();
+        ImGui::TextColored(UITheme::Success, "%s", T("add_right_connected"));
+        ImGui::Spacing();
+        if (PrimaryButton(T("add_next"))) {
+            g_wizard.step = 4; // proceed to scan left Joy-Con
+        }
+
+    } else if (g_wizard.step == 4) {
+        // Step 5 (Dual JoyCon only): Scan LEFT Joy-Con
+        SectionLabel(T("add_scan_left_title"));
         ImGui::Spacing();
 
         if (!g_wizard.scanStarted) {
-            ImGui::TextColored(UITheme::TextSecondary, "%s", T("add_scanning_hint"));
+            ImGui::TextColored(UITheme::TextSecondary, "%s", T("add_pre_scan_hint"));
             ImGui::Spacing();
             if (PrimaryButton(T("add_start_scan"))) {
                 g_wizard.scanStarted = true;
@@ -684,7 +693,7 @@ inline void RenderAddDevice(int& activePage) {
             if (g_wizard.statusMessage.empty()) {
                 Spinner("##scan2", 16.0f, 3.0f, ImGui::GetColorU32(UITheme::Primary));
                 ImGui::SameLine();
-                ImGui::TextColored(UITheme::TextSecondary, "%s", T("add_scanning_hint"));
+                ImGui::TextColored(UITheme::TextSecondary, "%s", T("add_scanning_active_hint"));
                 ImGui::Spacing();
                 if (SecondaryButton(T("add_cancel"))) {
                     DeviceManager::Instance().StopScan();

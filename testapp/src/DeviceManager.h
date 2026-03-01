@@ -50,7 +50,12 @@ public:
         scanCallback = callback;
 
         // Run scanning in background thread so UI stays responsive
-        if (scanThread.joinable()) scanThread.join();
+        // Wait for previous thread to finish if it's still joinable
+        if (scanThread.joinable()) {
+            // Previous scan should have been detached by StopScan or completed naturally
+            // If still joinable, try to join with a brief wait via detach
+            scanThread.detach();
+        }
         scanThread = std::thread([this]() {
             RunScan();
         });
@@ -58,8 +63,10 @@ public:
 
     void StopScan() {
         cancelScan.store(true);
-        if (scanThread.joinable()) scanThread.join();
         state.store(ScanState::Idle);
+        // Detach the scan thread instead of joining on the UI thread
+        // to avoid blocking when WinRT async calls are in progress
+        if (scanThread.joinable()) scanThread.detach();
     }
 
     ~DeviceManager() {
@@ -136,8 +143,18 @@ private:
 
         cj.device = device;
 
+        // Check cancel before GATT discovery
+        if (cancelScan.load()) {
+            state.store(ScanState::Idle);
+            return;
+        }
+
         // Discover GATT services
         auto servicesResult = device.GetGattServicesAsync().get();
+        if (cancelScan.load()) {
+            state.store(ScanState::Idle);
+            return;
+        }
         if (servicesResult.Status() != GattCommunicationStatus::Success) {
             state.store(ScanState::Error);
             if (scanCallback) scanCallback(ConnectedJoyCon{}, ScanState::Error);
@@ -145,7 +162,15 @@ private:
         }
 
         for (auto service : servicesResult.Services()) {
+            if (cancelScan.load()) {
+                state.store(ScanState::Idle);
+                return;
+            }
             auto charsResult = service.GetCharacteristicsAsync().get();
+            if (cancelScan.load()) {
+                state.store(ScanState::Idle);
+                return;
+            }
             if (charsResult.Status() != GattCommunicationStatus::Success) continue;
             for (auto characteristic : charsResult.Characteristics()) {
                 if (characteristic.Uuid() == guid(INPUT_REPORT_UUID_STR))
@@ -161,6 +186,12 @@ private:
             auto connectionParams = BluetoothLEPreferredConnectionParameters::ThroughputOptimized();
             cj.device.RequestPreferredConnectionParameters(connectionParams);
         } catch (...) {}
+
+        // Final cancel check before reporting success
+        if (cancelScan.load()) {
+            state.store(ScanState::Idle);
+            return;
+        }
 
         state.store(ScanState::Found);
         if (scanCallback) scanCallback(cj, ScanState::Found);
