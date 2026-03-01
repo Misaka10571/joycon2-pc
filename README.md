@@ -89,9 +89,9 @@ Install the following via the **Visual Studio Installer**:
 
 1. Open the **x64 Native Tools Command Prompt** for your Visual Studio version.
 
-2. Navigate to the project root and create a build folder:
+2. Navigate to the `joycon2_connector` directory and create a build folder:
    ```sh
-   cd path\to\project
+   cd joycon2_connector
    mkdir build
    cd build
    ```
@@ -108,7 +108,7 @@ Install the following via the **Visual Studio Installer**:
 
 5. The compiled executable will be at:
    ```
-   build\Release\JoyCon2Connector.exe
+   build\Release\joycon2_connector.exe
    ```
 
 ---

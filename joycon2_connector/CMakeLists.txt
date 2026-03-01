@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(joycon2_connector LANGUAGES CXX)
+project(joycon2_connector VERSION 1.1.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -8,10 +8,18 @@ if(MSVC)
   set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 endif()
 
+# Generate version header from template
+configure_file(
+  "${CMAKE_SOURCE_DIR}/src/version.h.in"
+  "${CMAKE_BINARY_DIR}/generated/version.h"
+  @ONLY
+)
+
 include_directories(
   src
   src/imgui
   ${CMAKE_SOURCE_DIR}/include
+  ${CMAKE_BINARY_DIR}/generated
 )
 
 # Core application sources (exclude old testapp.cpp)

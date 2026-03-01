@@ -84,9 +84,9 @@
 
 1. 打开对应 VS 版本的 **x64 Native Tools 命令提示符**。
 
-2. 进入项目根目录并创建构建文件夹：
+2. 进入 `joycon2_connector` 目录并创建构建文件夹：
    ```sh
-   cd 项目根目录路径
+   cd joycon2_connector
    mkdir build
    cd build
    ```
@@ -103,7 +103,7 @@
 
 5. 编译完成后，可执行文件位于：
    ```
-   build\Release\JoyCon2Connector.exe
+   build\Release\joycon2_connector.exe
    ```
 
 ---

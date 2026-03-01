@@ -23,6 +23,7 @@
 #include "PlayerManager.h"
 #include "i18n.h"
 #include "app_icon.h"
+#include "version.h"
 
 #pragma comment(lib, "dwmapi.lib")
 #pragma comment(lib, "winmm.lib")
@@ -400,8 +401,8 @@ void RenderSidebar() {
         ImGui::PopID();
     }
 
-    // Bottom: Language toggle
-    float bottomY = ImGui::GetWindowHeight() - S(60);
+    // Bottom: Language toggle + version
+    float bottomY = ImGui::GetWindowHeight() - S(82);
     ImGui::SetCursorPos(ImVec2(S(20), bottomY));
     ImGui::TextColored(UITheme::TextTertiary, "%s", T("nav_language"));
     ImGui::SetCursorPosX(S(20));
@@ -413,6 +414,10 @@ void RenderSidebar() {
         g_currentLang = (g_currentLang == Lang::EN) ? Lang::ZH : Lang::EN;
     }
     ImGui::PopStyleColor(3);
+
+    // Version display
+    ImGui::SetCursorPosX(S(20));
+    ImGui::TextColored(UITheme::TextTertiary, "v%s", APP_VERSION);
 
     ImGui::EndChild();
     ImGui::PopStyleVar();
