@@ -1,4 +1,5 @@
 build/
+joycon2_connector/build/
 .claude/
 .vscode/
 docs/
