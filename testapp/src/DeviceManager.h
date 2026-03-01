@@ -155,7 +155,8 @@ private:
             }
         }
 
-        // Request lowest connection interval (7.5ms) for minimal input lag
+        // Request shortest connection interval (7.5ms) for minimal input lag
+        // ThroughputOptimized has the lowest min interval among presets: 7.5ms–15ms
         try {
             auto connectionParams = BluetoothLEPreferredConnectionParameters::ThroughputOptimized();
             cj.device.RequestPreferredConnectionParameters(connectionParams);

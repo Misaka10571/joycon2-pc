@@ -5,6 +5,7 @@
 #include <windowsx.h>
 #include <d3d11.h>
 #include <dwmapi.h>
+#include <mmsystem.h>
 #include <tchar.h>
 #include <string>
 #include <algorithm>
@@ -23,6 +24,7 @@
 #include "i18n.h"
 
 #pragma comment(lib, "dwmapi.lib")
+#pragma comment(lib, "winmm.lib")
 
 // D3D11 globals
 static ID3D11Device*            g_pd3dDevice = nullptr;
@@ -377,6 +379,9 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
     // Apply theme
     UITheme::Apply();
 
+    // Increase system timer resolution to 1ms for responsive input
+    timeBeginPeriod(1);
+
     // Init managers
     ViGEmManager::Instance().Initialize();
     ConfigManager::Instance().Load();
@@ -468,6 +473,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
     PlayerManager::Instance().Shutdown();
     ViGEmManager::Instance().Shutdown();
     ConfigManager::Instance().Save();
+    timeEndPeriod(1);
 
     ImGui_ImplDX11_Shutdown();
     ImGui_ImplWin32_Shutdown();

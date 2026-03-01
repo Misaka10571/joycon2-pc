@@ -196,6 +196,12 @@ public:
              playerPtr = &player, &mouseConfig]
             (GattCharacteristic const&, GattValueChangedEventArgs const& args)
         {
+            // Boost BLE callback thread priority once for lower input latency
+            thread_local bool prioritySet = false;
+            if (!prioritySet) {
+                SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_ABOVE_NORMAL);
+                prioritySet = true;
+            }
             auto reader = DataReader::FromBuffer(args.CharacteristicValue());
             std::vector<uint8_t> buffer(reader.UnconsumedBufferLength());
             reader.ReadBytes(buffer);
@@ -409,15 +415,18 @@ public:
             GattClientCharacteristicConfigurationDescriptorValue::Notify).get();
 
         dp->updateThread = std::thread([ptr = dp.get()]() {
+            // Elevate merge thread priority for responsive dual JoyCon input
+            SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_ABOVE_NORMAL);
             std::shared_ptr<std::vector<uint8_t>> prevLeft, prevRight;
             while (ptr->running.load(std::memory_order_acquire)) {
                 {
                     std::unique_lock<std::mutex> lock(ptr->bufferMutex);
-                    ptr->bufferCV.wait_for(lock, std::chrono::milliseconds(4));
+                    ptr->bufferCV.wait_for(lock, std::chrono::milliseconds(2));
                 }
                 auto leftBuf = ptr->leftBufferAtomic.load(std::memory_order_acquire);
                 auto rightBuf = ptr->rightBufferAtomic.load(std::memory_order_acquire);
                 if (leftBuf->empty() || rightBuf->empty()) continue;
+                // Submit update if either side has new data (don't wait for both)
                 if (leftBuf == prevLeft && rightBuf == prevRight) continue;
                 prevLeft = leftBuf;
                 prevRight = rightBuf;
@@ -443,6 +452,8 @@ public:
 
         if (type == ControllerType::ProController) {
             controller.inputChar.ValueChanged([ds4](GattCharacteristic const&, GattValueChangedEventArgs const& args) mutable {
+                thread_local bool prioritySet = false;
+                if (!prioritySet) { SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_ABOVE_NORMAL); prioritySet = true; }
                 auto reader = DataReader::FromBuffer(args.CharacteristicValue());
                 std::vector<uint8_t> buffer(reader.UnconsumedBufferLength());
                 reader.ReadBytes(buffer);
@@ -453,6 +464,8 @@ public:
             });
         } else {
             controller.inputChar.ValueChanged([ds4](GattCharacteristic const&, GattValueChangedEventArgs const& args) mutable {
+                thread_local bool prioritySet = false;
+                if (!prioritySet) { SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_ABOVE_NORMAL); prioritySet = true; }
                 auto reader = DataReader::FromBuffer(args.CharacteristicValue());
                 std::vector<uint8_t> buffer(reader.UnconsumedBufferLength());
                 reader.ReadBytes(buffer);
